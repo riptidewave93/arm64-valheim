@@ -5,6 +5,8 @@ Experimental docker image to run a Valheim server using Raspberry Pi4 based on [
 ## Compiled image
 
 You can find ready to use docker image on [Docker Hub](https://hub.docker.com/r/evirth/valheim-server-pi4).
+> [!NOTE]
+> Updated to **v0.217.30**
 
 ## Create image (optional)
 
