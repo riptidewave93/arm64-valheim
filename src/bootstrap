@@ -6,36 +6,22 @@
 #   string: params to run the server
 #   int: -1 is something is wrong.
 
+STEAMAPPID=892970
+BOX64_LD_LIBRARY_PATH=./linux64:/root/steamcmd/linux32:$BOX64_LD_LIBRARY_PATH
+BOX64_LOG=${BOX64_LOG:-1}
+BOX64_TRACE_FILE=/root/valheim_server/output.log
+BOX64_TRACE=${BOX64_TRACE:-0}
+
 getparams() {
     # Basic + default params values same order that PDF:
     ##  -nographics: basic param for the valheim documentation.
     ##  -batchmode: basic param for the valheim documentation.
-    params="-nographics -batchmode"
-
-    ## -name: Name of the server:
-    ## Enter the name of your server that will be visible in the Server list.
-    if [[ -z "${NAME}" ]]; then
-        echo "The variable NAME is not defined. Please, fix and run again."
-        return -1
-    else
-        params="$params -name ${NAME}"
-    fi
-
+    ##  -name: Name of the server
     ##  -port: used the value of the param if defined, if not it will use standard port (2456).
-    ##  Choose the Port which you want the server to communicate with. Please note that this has to 
-    ##  correspond with the Port Forwarding settings on your Router. Valheim uses the specified Port AND 
-    ##  specified Port+1. Default Ports are 2456-2457
-    params="$params -port ${PORT:-2456}"
-
-    ##  -world: Name of the world
-    ##  A World with the name entered will be created. 
-    ##  You may also choose an already existing World by entering its name
-    if [[ -z "${WORLD}" ]]; then
-        echo "The variable WORLD is not defined. Fixed and run again."
-        return -1
-    else
-        params="$params -world ${WORLD}"
-    fi
+    ##  -world: Name of the world, defaults to default if unset.
+    ##  -public: used the value of the param if defined, if not it will be a public server (1).
+    ##  -saveinterval: Change how often the world will save in seconds.
+    params="-nographics -batchmode -name ${NAME:-My World} -port ${PORT:-2456} -world ${WORLD-default} -public ${PUBLIC:-1} -saveinterval ${SAVEINTERVAL:-1800}"
 
     ## -password: Password for the server, if not defined, no password = free access:
     if [[ -z "${PASSWORD}" ]]; then
@@ -48,18 +34,10 @@ getparams() {
     ##  Overrides the default save path where Worlds and permission-files are stored.
     ##  Save folder for the data (if not defined can run, but the world will be saved on the container, bad idea):
     if [[ -z "${SAVEDIR}" ]]; then
-        echo "The variable SAVEDIR is not defined. Fixed and run again."
-        return -1
+        echo "The variable SAVEDIR is not defined, will use default! NOTE THE WORLD WILL BE LOST OF THE POD DIES!"
     else
         params="$params -savedir ${SAVEDIR}"
     fi
-
-    ##  -public: used the value of the param if defined, if not it will be a public server (1).
-    ##  Sets the visibility of your server. 1 is default and will make the server visible in the browser.
-    ##  Set it to 0 to make the server invisible and only joinable via the ‘Join IP’-button.
-    ##  Setting public to 0 is a good option if you wish to run a local LAN server, where players can join via
-    ##  the local IP of the server.
-    params="$params -public ${PUBLIC:-1}"
 
     ##  -logFile: Sets the location to save the log file.
     if [[ -z "${LOGFILE}" ]]; then
@@ -67,9 +45,6 @@ getparams() {
     else
         params="$params -logFile ${LOGFILE}"
     fi
-
-    ##  -saveinterval: Change how often the world will save in seconds.
-    params="$params -saveinterval ${SAVEINTERVAL:-1800}"
 
     ##  -backups: Sets how many automatic backups will be kept. 
     ##  The first is the ‘short’ backup length, and the rest are the ‘long’ backup length.
@@ -89,6 +64,17 @@ getparams() {
     ##  means only Steam users can see and join the Server.
     if [ "${CROSSPLAY}" = "TRUE" ]; then
         params="$params -crossplay"
+    fi
+}
+
+# Download steam and whatnot
+bootstrap() {
+    if [ ! -d /root/steamcmd ]; then
+        echo "Installing steamcmd and downloading valheim, this may take a bit!"
+        mkdir /root/steamcmd && cd /root/steamcmd
+        curl -sqL "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz" | tar zxf -
+        DEBUGGER="/usr/local/bin/box86" ./steamcmd.sh +@sSteamCmdForcePlatformType linux +force_install_dir /root/valheim_server +login anonymous +app_update 896660 validate +quit
+        cd - > /dev/null
     fi
 }
 
@@ -117,8 +103,15 @@ main() {
     echo "##############################"
 
     # Starting the server:
-    exec box64 ./valheim_server.x86_64 $params
+    #exec
+    box64 ./valheim_server.x86_64 $params
+
+    # If we died sleep so we can debug
+    while true; do
+        sleep 10240
+    done
 }
 
 getparams
+bootstrap
 main
