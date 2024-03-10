@@ -77,8 +77,8 @@ bootstrap() {
         cd - > /dev/null
     fi
     # Ensure our world dir exists
-    if [ ! -d "${SAVEDIR}" ]; then
-        mkdir -p "${SAVEDIR}"
+    if [ ! -d "${SAVEDIR:-$VOLUME_DIR/world}" ]; then
+        mkdir -p "${SAVEDIR:-$VOLUME_DIR/world}"
     fi
 }
 
