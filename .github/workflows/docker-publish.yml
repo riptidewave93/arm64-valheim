@@ -21,13 +21,13 @@ jobs:
         include:
           - dockerfile: ./Dockerfile-arm64
             image: ${{ github.repository }}
-            labels: ${{ github.repository }}:arm64
+            tags: ${{ github.repository }}:arm64
           - dockerfile: ./Dockerfile-rk3588
             image: ${{ github.repository }}
-            labels: ${{ github.repository }}:rk3588
+            tags: ${{ github.repository }}:rk3588
           - dockerfile: ./Dockerfile-tegra-t194
             image: ${{ github.repository }}
-            labels: ${{ github.repository }}:tegra-t194
+            tags: ${{ github.repository }}:tegra-t194
     permissions:
       contents: read
       packages: write
@@ -52,7 +52,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ matrix.tags }}
 
       - name: Build and push Docker image
         id: build-and-push
@@ -60,8 +60,9 @@ jobs:
         with:
           platforms: linux/arm64
           context: .
+          file: ${{ matrix.dockerfile }}
           push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
+          tags: ${{ matrix.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
