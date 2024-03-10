@@ -27,7 +27,10 @@ RUN wget https://itai-nelken.github.io/weekly-box86-debs/debian/box86.list -O /e
     && wget -qO- https://itai-nelken.github.io/weekly-box86-debs/debian/KEY.gpg | gpg --dearmor -o /etc/apt/trusted.gpg.d/box86-debs-archive-keyring.gpg \
     && wget https://ryanfortner.github.io/box64-debs/box64.list -O /etc/apt/sources.list.d/box64.list \
     && wget -qO- https://ryanfortner.github.io/box64-debs/KEY.gpg | gpg --dearmor -o /etc/apt/trusted.gpg.d/box64-debs-archive-keyring.gpg \
-    && apt update && apt install box64-arm64 box86 -y \
+    && apt update \
+    && apt install -y \
+        box64-tegra-t194 \
+        box86 \
     && apt purge -y wget gpg \
     && apt autoremove -y \
     && apt clean \
