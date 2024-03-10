@@ -32,6 +32,7 @@ RUN wget https://itai-nelken.github.io/weekly-box86-debs/debian/box86.list -O /e
         box64-tegra-t194 \
         box86 \
         libatomic1 \
+        libpulse-mainloop-glib0 \
     && apt purge -y wget gpg \
     && apt autoremove -y \
     && apt clean \
