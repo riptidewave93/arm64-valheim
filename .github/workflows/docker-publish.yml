@@ -15,6 +15,19 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - dockerfile: ./Dockerfile-arm64
+            image: ${{ github.repository }}
+            labels: ${{ github.repository }}:arm64
+          - dockerfile: ./Dockerfile-rk3588
+            image: ${{ github.repository }}
+            labels: ${{ github.repository }}:rk3588
+          - dockerfile: ./Dockerfile-tegra-t194
+            image: ${{ github.repository }}
+            labels: ${{ github.repository }}:tegra-t194
     permissions:
       contents: read
       packages: write

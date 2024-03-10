@@ -29,7 +29,7 @@ getparams() {
         echo "The variable PASSWORD is not defined! Exiting, as valheim servers require passwords now!"
         exit 1
     fi
-    params="$params -password ${PASSWORD:-password}"
+    params="$params -password ${PASSWORD}"
 
     ##  -savedir: Where the data will be saved.
     ##  Overrides the default save path where Worlds and permission-files are stored.
