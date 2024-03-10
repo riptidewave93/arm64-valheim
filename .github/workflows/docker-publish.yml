@@ -21,13 +21,13 @@ jobs:
         include:
           - dockerfile: ./Dockerfile-arm64
             image: ${{ github.repository }}
-            tags: ${{ env.REGISTRY }}/${{ github.repository }}:arm64
+            tags: ghcr.io/${{ github.repository }}:arm64
           - dockerfile: ./Dockerfile-rk3588
             image: ${{ github.repository }}
-            tags: ${{ env.REGISTRY }}/${{ github.repository }}:rk3588
+            tags: ghcr.io/${{ github.repository }}:rk3588
           - dockerfile: ./Dockerfile-tegra-t194
             image: ${{ github.repository }}
-            tags: ${{ env.REGISTRY }}/${{ github.repository }}:tegra-t194
+            tags: ghcr.io/${{ github.repository }}:tegra-t194
     permissions:
       contents: read
       packages: write
