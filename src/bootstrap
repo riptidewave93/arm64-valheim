@@ -8,7 +8,7 @@
 
 STEAMAPPID=892970
 VOLUME_DIR="/opt/valheim"
-BOX64_LD_LIBRARY_PATH=./linux64:${VOLUME_DIR}/steamcmd/linux32:$BOX64_LD_LIBRARY_PATH
+BOX64_LD_LIBRARY_PATH=${VOLUME_DIR}/valheim_server/linux64:${VOLUME_DIR}/steamcmd/linux32:$BOX64_LD_LIBRARY_PATH
 BOX64_LOG=${BOX64_LOG:-1}
 BOX64_TRACE_FILE=${VOLUME_DIR}/valheim_server/output.log
 BOX64_TRACE=${BOX64_TRACE:-0}
@@ -85,7 +85,7 @@ bootstrap() {
 # Main function
 main() {
     # set fun env stuff
-    export LD_LIBRARY_PATH=./linux64:${LD_LIBRARY_PATH}
+    export LD_LIBRARY_PATH=${VOLUME_DIR}/valheim_server/linux64:${LD_LIBRARY_PATH}
     export SteamAppId=${STEAMAPPID}
 
     # Basic export for the BOX64 emulator
