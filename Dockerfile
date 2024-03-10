@@ -1,4 +1,4 @@
-FROM debian:buster-slim
+FROM debian:bookworm-slim
 
 # Install tools required for the project
 RUN dpkg --add-architecture armhf \

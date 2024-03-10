@@ -2,25 +2,27 @@
 
 Experimental docker image to run an ARM64 Valheim server based on [pi4valheim by Evirth](https://github.com/Evirth/pi4valheim), box86 and box64.
 
+Currently the image is using a compiled version of Box64 designed for NVIDIA Jetson boards.
+
 ## Create image (optional)
 
 Building the image takes around 10 minutes.
 1. Ensure you have `qemu-user-static` installed on your host machine
 2. Clone repo `git clone https://github.com/riptidewave93/arm64-valheim`
-3. Build the image `docker build --platform linux/arm64 --tag valheim-server -f Dockerfile .`
+3. Build the image `docker build --platform linux/arm64 --tag arm64-valheim -f Dockerfile .`
 
 ## Run container
 
-### Configure the **server.env** file
+### Environment Variables
 
 These values describe your server:
 ```
-PUBLIC=0                        # 0 private / 1 public
-PORT=2456                       # Don't change if don't know what are you doing
-NAME=YourServerName             # Your amazing name of your server
-WORLD=YourWorldName             # Your unique name of your world
-SAVEDIR=/root/valheim_server    # Where to save your data
-PASSWORD=YourServerPassword     # You can leave blank and it will not have password
+PUBLIC=0                        # 0 private / 1 public, defaults to 0 for private
+PORT=2456                       # Sets the port of the server, defaults to 2456
+NAME=YourServerName             # Name of the server, defaults to My World
+WORLD=YourWorldName             # Name of the wold file, defaults to default
+SAVEDIR=/root/valheim_server    # Directory for the game files, needs to be to a volume mount to prevent data loss!
+PASSWORD=YourServerPassword     # Password for the servier, if unset no password is applied
 ```
 
 ### Run the docker image
@@ -37,8 +39,9 @@ services:
   valheim-server:
     image: evirth/valheim-server-pi4
     container_name: valheim-server
-    env_file:
-      - server.env
+    environment:
+      - SAVEDIR=/root/valheim_server
+      # Add your other env settings here
     ports:
       - "2456-2457:2456-2457/udp"
       - "2456-2457:2456-2457/tcp"
