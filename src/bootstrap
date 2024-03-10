@@ -24,21 +24,20 @@ getparams() {
     ##  -saveinterval: Change how often the world will save in seconds.
     params="-nographics -batchmode -name ${NAME:-My World} -port ${PORT:-2456} -world ${WORLD-default} -public ${PUBLIC:-1} -saveinterval ${SAVEINTERVAL:-1800}"
 
-    ## -password: Password for the server, if not defined, no password = free access:
+    ## -password: Password for the server.
     if [[ -z "${PASSWORD}" ]]; then
-        echo "The variable PASSWORD is not defined. Running WITHOUT password."
+        echo "The variable PASSWORD is not defined! Using default of "password", no quotes. Note that Valheim servers require passwords now!"
     else
-        params="$params -password ${PASSWORD}"
+        params="$params -password ${PASSWORD:-password}"
     fi
 
     ##  -savedir: Where the data will be saved.
     ##  Overrides the default save path where Worlds and permission-files are stored.
     ##  Save folder for the data (if not defined can run, but the world will be saved on the container, bad idea):
     if [[ -z "${SAVEDIR}" ]]; then
-        echo "The variable SAVEDIR is not defined!"
-    else
-        params="$params -savedir ${SAVEDIR}"
+        echo "The variable SAVEDIR is not defined, will use ${VOLUME_DIR}/world!"
     fi
+    params="$params -savedir ${SAVEDIR:-$VOLUME_DIR/world}"
 
     ##  -logFile: Sets the location to save the log file.
     if [[ -z "${LOGFILE}" ]]; then
@@ -78,8 +77,8 @@ bootstrap() {
         cd - > /dev/null
     fi
     # Ensure our world dir exists
-    if [ ! -d "${SAVEDIR}" ]; then
-        mkdir -p "${SAVEDIR}"
+    if [ ! -d "${SAVEDIR:-$VOLUME_DIR/world}" ]; then
+        mkdir -p "${SAVEDIR:-$VOLUME_DIR/world}"
     fi
 }
 
