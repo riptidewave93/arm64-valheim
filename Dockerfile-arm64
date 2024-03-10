@@ -29,7 +29,6 @@ RUN wget https://itai-nelken.github.io/weekly-box86-debs/debian/box86.list -O /e
     && wget -qO- https://ryanfortner.github.io/box64-debs/KEY.gpg | gpg --dearmor -o /etc/apt/trusted.gpg.d/box64-debs-archive-keyring.gpg \
     && apt update \
     && apt install -y \
-        box64-arm64 \
         box86 \
         libatomic1 \
         libpulse-mainloop-glib0 \
@@ -38,6 +37,14 @@ RUN wget https://itai-nelken.github.io/weekly-box86-debs/debian/box86.list -O /e
     && apt clean \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir /opt/valheim
+
+# Split out box64 install for better CI experience
+RUN apt update \
+    && apt install -y \
+        box64-arm64 \
+    && apt autoremove -y \
+    && apt clean \
+    && rm -rf /var/lib/apt/lists/*
 
 # Specific for run Valheim server
 EXPOSE 2456-2457/udp
