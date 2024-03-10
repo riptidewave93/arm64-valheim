@@ -31,10 +31,12 @@ RUN wget https://itai-nelken.github.io/weekly-box86-debs/debian/box86.list -O /e
     && apt install -y \
         box64-tegra-t194 \
         box86 \
+        libatomic1 \
     && apt purge -y wget gpg \
     && apt autoremove -y \
     && apt clean \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir /opt/valheim
 
 # Specific for run Valheim server
 EXPOSE 2456-2457/udp
