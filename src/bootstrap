@@ -7,9 +7,10 @@
 #   int: -1 is something is wrong.
 
 STEAMAPPID=892970
-BOX64_LD_LIBRARY_PATH=./linux64:/root/steamcmd/linux32:$BOX64_LD_LIBRARY_PATH
+VOLUME_DIR="/opt/valheim"
+BOX64_LD_LIBRARY_PATH=./linux64:${VOLUME_DIR}/steamcmd/linux32:$BOX64_LD_LIBRARY_PATH
 BOX64_LOG=${BOX64_LOG:-1}
-BOX64_TRACE_FILE=/root/valheim_server/output.log
+BOX64_TRACE_FILE=${VOLUME_DIR}/valheim_server/output.log
 BOX64_TRACE=${BOX64_TRACE:-0}
 
 getparams() {
@@ -34,10 +35,9 @@ getparams() {
     ##  Overrides the default save path where Worlds and permission-files are stored.
     ##  Save folder for the data (if not defined can run, but the world will be saved on the container, bad idea):
     if [[ -z "${SAVEDIR}" ]]; then
-        echo "The variable SAVEDIR is not defined, will use default! NOTE THE WORLD WILL BE LOST OF THE POD DIES!"
-    else
-        params="$params -savedir ${SAVEDIR}"
+        echo "The variable SAVEDIR is not defined, will use ${VOLUME_DIR}/world!"
     fi
+    params="$params -savedir ${SAVEDIR:-$VOLUME_DIR/world}"
 
     ##  -logFile: Sets the location to save the log file.
     if [[ -z "${LOGFILE}" ]]; then
@@ -69,17 +69,25 @@ getparams() {
 
 # Download steam and whatnot
 bootstrap() {
-    if [ ! -d /root/steamcmd ]; then
+    if [ ! -d ${VOLUME_DIR}/steamcmd ]; then
         echo "Installing steamcmd and downloading valheim, this may take a bit!"
-        mkdir /root/steamcmd && cd /root/steamcmd
+        mkdir ${VOLUME_DIR}/steamcmd && cd ${VOLUME_DIR}/steamcmd
         curl -sqL "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz" | tar zxf -
-        DEBUGGER="/usr/local/bin/box86" ./steamcmd.sh +@sSteamCmdForcePlatformType linux +force_install_dir /root/valheim_server +login anonymous +app_update 896660 validate +quit
+        DEBUGGER="/usr/local/bin/box86" ./steamcmd.sh +@sSteamCmdForcePlatformType linux +force_install_dir ${VOLUME_DIR}/valheim_server +login anonymous +app_update 896660 validate +quit
         cd - > /dev/null
+    fi
+    # Ensure our world dir exists
+    if [ ! -d "${SAVEDIR}" ]; then
+        mkdir -p "${SAVEDIR}"
     fi
 }
 
 # Main function
 main() {
+    # set fun env stuff
+    export LD_LIBRARY_PATH=./linux64:${LD_LIBRARY_PATH}
+    export SteamAppId=${STEAMAPPID}
+
     # Basic export for the BOX64 emulator
     echo "##############################"
     echo "Basic variables running box64:"
@@ -87,15 +95,11 @@ main() {
     echo "BOX64_LOG: ${BOX64_LOG}"
     echo "BOX64_TRACE_FILE: ${BOX64_TRACE_FILE}"
     echo "BOX64_TRACE: ${BOX64_TRACE}"
+    echo "LD_LIBRARY_PATH: ${LD_LIBRARY_PATH}"
     echo "##############################"
 
-    # Part of the standar code startup of the server:
-    export templdpath="${LD_LIBRARY_PATH}"
-    export LD_LIBRARY_PATH=./linux64:"${LD_LIBRARY_PATH}"
-    export SteamAppId=${STEAMAPPID}
-    
     # Move to the execution folder
-    cd /root/valheim_server
+    cd ${VOLUME_DIR}/valheim_server
 
     ## Checking the final parameters to use:
     echo "##############################"
@@ -103,13 +107,7 @@ main() {
     echo "##############################"
 
     # Starting the server:
-    #exec
-    box64 ./valheim_server.x86_64 $params
-
-    # If we died sleep so we can debug
-    while true; do
-        sleep 10240
-    done
+    exec box64 ./valheim_server.x86_64 $params
 }
 
 getparams
