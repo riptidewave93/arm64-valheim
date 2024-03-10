@@ -35,9 +35,10 @@ getparams() {
     ##  Overrides the default save path where Worlds and permission-files are stored.
     ##  Save folder for the data (if not defined can run, but the world will be saved on the container, bad idea):
     if [[ -z "${SAVEDIR}" ]]; then
-        echo "The variable SAVEDIR is not defined, will use ${VOLUME_DIR}/world!"
+        echo "The variable SAVEDIR is not defined!"
+    else
+        params="$params -savedir ${SAVEDIR}"
     fi
-    params="$params -savedir ${SAVEDIR:-$VOLUME_DIR/world}"
 
     ##  -logFile: Sets the location to save the log file.
     if [[ -z "${LOGFILE}" ]]; then
@@ -77,8 +78,8 @@ bootstrap() {
         cd - > /dev/null
     fi
     # Ensure our world dir exists
-    if [ ! -d "${SAVEDIR:-$VOLUME_DIR/world}" ]; then
-        mkdir -p "${SAVEDIR:-$VOLUME_DIR/world}"
+    if [ ! -d "${SAVEDIR}" ]; then
+        mkdir -p "${SAVEDIR}"
     fi
 }
 
