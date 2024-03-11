@@ -22,12 +22,18 @@ Note that on first boot it may take a bit to download Valheim server, and genera
 
 These values describe your server:
 ```
-PUBLIC=0                        # 0 private / 1 public, defaults to 0 for private
+PASSWORD=YourServerPassword     # Password for the server, THIS IS REQUIRED!!!
+PUBLIC=0                        # 0 private / 1 public, defaults to 0
 PORT=2456                       # Sets the port of the server, defaults to 2456
 NAME=YourServerName             # Name of the server, defaults to My World
 WORLD=YourWorldName             # Name of the wold file, defaults to default
+SAVEINTERVAL=1800               # How often the world should save, defaults to 1800
 SAVEDIR=/opt/valheim/world      # Directory for the game files, needs to be to a volume mount to prevent data loss!
-PASSWORD=YourServerPassword     # Password for the server, THIS IS REQUIRED!
+LOGFILE=/opt/valheim/log.txt    # Logfile for the gameserver, if unset, logs to stdout
+BACKUPS=4                       # Number of backups to keep, defaults to 4
+BACKUPSHORT=7200                # In seconds, how long to wait for first world backup, defaults to 7200
+BACKUPLONG=43200                # In seconds, how long to wait for world backups AFTER the first world backup, defaults to 43200
+CROSSPLAY=TRUE                  # If set to TRUE, will enable crossplay. defaults to being unset, so crossplay disabled
 ```
 
 ### Run the docker image
@@ -46,7 +52,6 @@ services:
     container_name: valheim-server
     environment:
       - PASSWORD=password
-      # Add your other env settings here
     ports:
       - "2456-2457:2456-2457/udp"
       - "2456-2457:2456-2457/tcp"
