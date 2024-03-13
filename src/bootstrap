@@ -70,12 +70,18 @@ getparams() {
 # Download steam and whatnot
 bootstrap() {
     if [ ! -d ${VOLUME_DIR}/steamcmd ]; then
-        echo "Installing steamcmd and downloading valheim, this may take a bit!"
+        echo "Installing steamcmd..."
         mkdir ${VOLUME_DIR}/steamcmd && cd ${VOLUME_DIR}/steamcmd
         curl -sqL "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz" | tar zxf -
-        DEBUGGER="/usr/local/bin/box86" ./steamcmd.sh +@sSteamCmdForcePlatformType linux +force_install_dir ${VOLUME_DIR}/valheim_server +login anonymous +app_update 896660 validate +quit
         cd - > /dev/null
     fi
+
+    # If we exist, make sure we are up to date
+    echo "Ensuring valheinm is up to date..."
+    cd ${VOLUME_DIR}/steamcmd
+    DEBUGGER="/usr/local/bin/box86" ./steamcmd.sh +@sSteamCmdForcePlatformType linux +force_install_dir ${VOLUME_DIR}/valheim_server +login anonymous +app_update 896660 validate +quit
+    cd - > /dev/null
+
     # Ensure our world dir exists
     if [ ! -d "${SAVEDIR:-$VOLUME_DIR/world}" ]; then
         mkdir -p "${SAVEDIR:-$VOLUME_DIR/world}"

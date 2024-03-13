@@ -22,6 +22,12 @@ jobs:
           - dockerfile: ./Dockerfile-arm64
             image: ${{ github.repository }}
             tags: ghcr.io/${{ github.repository }}:arm64
+          - dockerfile: ./Dockerfile-pi4
+            image: ${{ github.repository }}
+            tags: ghcr.io/${{ github.repository }}:pi4
+          - dockerfile: ./Dockerfile-pi5
+            image: ${{ github.repository }}
+            tags: ghcr.io/${{ github.repository }}:pi5
           - dockerfile: ./Dockerfile-rk3588
             image: ${{ github.repository }}
             tags: ghcr.io/${{ github.repository }}:rk3588

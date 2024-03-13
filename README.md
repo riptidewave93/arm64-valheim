@@ -2,8 +2,10 @@
 
 Experimental docker image to run an ARM64 Valheim server based on [pi4valheim by Evirth](https://github.com/Evirth/pi4valheim), box86 and box64.
 
-Note that currently 3 different ARM64 images are built, and are split via docker tag:
+Note that platform specific ARM64 images are built, and are split via docker tag:
 * arm64 - For generic arm64 targets
+* pi4 - For Raspberry Pi 4
+* pi5 - For Raspberry Pi 5
 * rk3588 - For Rockchip RK3588/RK3588S targets on the Rockchip Kernel
 * tegra-t194 - For Nvidia Jetson/Xavier boards
 
