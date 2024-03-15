@@ -35,6 +35,7 @@ jobs:
           cache-to: type=gha,mode=max
 
   img-build:
+    needs: base-build
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
