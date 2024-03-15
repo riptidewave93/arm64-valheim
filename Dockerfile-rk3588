@@ -10,6 +10,7 @@ RUN dpkg --add-architecture armhf \
         libsdl2-2.0-0 \
         wget \
         gpg \
+        ca-certificates \
     && apt install -y --no-install-recommends \
         libc6:armhf \
         libncurses5:armhf \
