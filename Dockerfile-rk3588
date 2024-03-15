@@ -3,14 +3,14 @@ FROM debian:bookworm-slim
 # Install tools required for the project
 RUN dpkg --add-architecture armhf \
     && apt update && apt full-upgrade -y \
-    && apt install -y \
+    && apt install -y --no-install-recommends \
         locales \
         gcc-arm-linux-gnueabihf \
         curl \
         libsdl2-2.0-0 \
         wget \
         gpg \
-    && apt install -y \
+    && apt install -y --no-install-recommends \
         libc6:armhf \
         libncurses5:armhf \
         libstdc++6:armhf \
@@ -28,7 +28,7 @@ RUN wget https://itai-nelken.github.io/weekly-box86-debs/debian/box86.list -O /e
     && wget https://ryanfortner.github.io/box64-debs/box64.list -O /etc/apt/sources.list.d/box64.list \
     && wget -qO- https://ryanfortner.github.io/box64-debs/KEY.gpg | gpg --dearmor -o /etc/apt/trusted.gpg.d/box64-debs-archive-keyring.gpg \
     && apt update \
-    && apt install -y \
+    && apt install -y --no-install-recommends \
         box86 \
         libatomic1 \
         libpulse-mainloop-glib0 \

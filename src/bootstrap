@@ -12,9 +12,6 @@ BOX64_LD_LIBRARY_PATH=${VOLUME_DIR}/valheim_server/linux64:${VOLUME_DIR}/steamcm
 BOX64_LOG=${BOX64_LOG:-1}
 BOX64_TRACE_FILE=${VOLUME_DIR}/valheim_server/output.log
 BOX64_TRACE=${BOX64_TRACE:-0}
-# https://github.com/ptitSeb/box64/issues/1182
-BOX64_DYNAREC_STRONGMEM=4
-BOX64_DYNAREC_BLEEDING_EDGE=0
 
 getparams() {
     # Basic + default params values same order that PDF:
@@ -89,6 +86,18 @@ bootstrap() {
     if [ ! -d "${SAVEDIR:-$VOLUME_DIR/world}" ]; then
         mkdir -p "${SAVEDIR:-$VOLUME_DIR/world}"
     fi
+
+    # Setup box64 memory tweaks
+    if [ ! -f "~/.box64rc" ]; then
+        echo "Adding box64 configuration..."
+        cat <<-EOF > ~/.box64rc
+[valheim_server.x86_64]
+BOX64_DYNAREC_BLEEDING_EDGE=0
+BOX64_DYNAREC_BIGBLOCK=0
+BOX64_DYNAREC_STRONGMEM=3
+EOF
+    fi
+
 }
 
 # Main function
@@ -96,15 +105,6 @@ main() {
     # set fun env stuff
     export LD_LIBRARY_PATH=${VOLUME_DIR}/valheim_server/linux64:${LD_LIBRARY_PATH}
     export SteamAppId=${STEAMAPPID}
-
-    # Basic export for the BOX64 emulator
-    echo "##############################"
-    echo "Basic variables running box64:"
-    echo "BOX64_LD_LIBRARY_PATH: ${BOX64_LD_LIBRARY_PATH}"
-    echo "BOX64_LOG: ${BOX64_LOG}"
-    echo "BOX64_TRACE_FILE: ${BOX64_TRACE_FILE}"
-    echo "BOX64_TRACE: ${BOX64_TRACE}"
-    echo "##############################"
 
     # Move to the execution folder
     cd ${VOLUME_DIR}/valheim_server
