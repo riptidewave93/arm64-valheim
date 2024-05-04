@@ -88,6 +88,7 @@ bootstrap() {
     fi
 
     # Setup box64 memory tweaks
+    # https://github.com/ptitSeb/box64/issues/1182
     if [ ! -f "~/.box64rc" ]; then
         echo "Adding box64 configuration..."
         cat <<-EOF > ~/.box64rc
