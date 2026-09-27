@@ -56,7 +56,7 @@ BOX64_DYNAREC_BIGBLOCK=0
 BOX64_DYNAREC_STRONGMEM=3
 ```
 
-On big.LITTLE SoCs the server is pinned to the fast cores by default via `CPU_AFFINITY` (currently the `rk3588` image, cores 4-7). If running in Kubernetes, avoid CPU limits that throttle the container.
+On big.LITTLE SoCs the server is pinned to the fast cores by default via `CPU_AFFINITY` (currently the `rk3588` image, cores 4-7). When pinned, box64 reports only the pinned cores to the server (`BOX64_MAXCPU`), so its thread pools match. If running in Kubernetes, avoid CPU limits that throttle the container.
 
 ### World Backups
 

@@ -13,10 +13,6 @@ VOLUME_DIR="/opt/valheim"
 # stdout unless BOX64_TRACE_FILE is set.
 export BOX64_LOG=${BOX64_LOG:-1}
 export BOX64_TRACE=${BOX64_TRACE:-0}
-# libparty.so (PlayFab Party, used for crossplay) uses libogg without linking
-# it, relying on libpulse to have loaded it. box64 runs libpulse natively, so
-# preload libogg to make those symbols available. The x86_64 libogg from the
-# image is emulated, as box64's wrapped libogg lacks ogg_stream_pageout_fill.
 export BOX64_EMULATED_LIBS=libogg.so.0${BOX64_EMULATED_LIBS:+:$BOX64_EMULATED_LIBS}
 export BOX64_LD_PRELOAD=libogg.so.0${BOX64_LD_PRELOAD:+:$BOX64_LD_PRELOAD}
 
@@ -180,7 +176,10 @@ main() {
     # a big.LITTLE SoC. Defaults per image, see Dockerfile.
     if [[ -n "${CPU_AFFINITY}" ]]; then
         if taskset -c "${CPU_AFFINITY}" true 2>/dev/null; then
-            echo "Pinning Valheim server to CPU cores ${CPU_AFFINITY}..."
+            # box64 reports every core on the host to the server, which sizes
+            # its thread pools from that, so only report the pinned cores
+            export BOX64_MAXCPU=${BOX64_MAXCPU:-$(taskset -c "${CPU_AFFINITY}" nproc)}
+            echo "Pinning Valheim server to CPU cores ${CPU_AFFINITY} (${BOX64_MAXCPU} cores)..."
             exec taskset -c "${CPU_AFFINITY}" box64 ./valheim_server.x86_64 "${params[@]}"
         fi
         echo "Unable to pin Valheim server to CPU cores ${CPU_AFFINITY}, running unpinned"
