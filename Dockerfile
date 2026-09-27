@@ -20,5 +20,8 @@ ENV CPU_AFFINITY=${CPU_AFFINITY}
 EXPOSE 2456-2458/tcp 2456-2458/udp
 WORKDIR /root
 COPY src/bootstrap .
-COPY src/valheim-backup /usr/local/bin/
+COPY src/common /usr/local/lib/valheim/
+COPY src/valheim-backup src/valheim-updater /usr/local/bin/
+# tini forwards signals to bootstrap, which forwards them to the server
+ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["/bin/bash", "/root/bootstrap"]

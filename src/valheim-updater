@@ -1,0 +1,149 @@
+#!/bin/bash
+
+# Checks Steam for Valheim server updates. When one is found and no players
+# are connected, asks bootstrap to stop the server, update and start it again.
+#
+# Usage:
+#   valheim-updater          Run periodic update checks (started by bootstrap)
+#   valheim-updater check    Show installed/latest build, exits 0 if an update is available
+#   valheim-updater update   Update now if one is available, even if players are connected
+
+. /usr/local/lib/valheim/common
+
+UPDATE_INTERVAL=${UPDATE_INTERVAL:-900}
+UPDATE_IF_IDLE=${UPDATE_IF_IDLE:-true}
+UPDATE_IDLE_CHECKS=${UPDATE_IDLE_CHECKS:-5}
+UPDATE_IDLE_CHECK_INTERVAL=${UPDATE_IDLE_CHECK_INTERVAL:-60}
+IDLE_DATAGRAM_WINDOW=${IDLE_DATAGRAM_WINDOW:-3}
+IDLE_DATAGRAM_MAX_COUNT=${IDLE_DATAGRAM_MAX_COUNT:-30}
+
+log() {
+    echo "[valheim-updater] $*"
+}
+
+installed_buildid() {
+    awk -F '"' '$2 == "buildid" { print $4; exit }' \
+        "${SERVER_DIR}/steamapps/appmanifest_${SERVER_APPID}.acf" 2>/dev/null
+}
+
+latest_buildid() {
+    # app_info_print serves stale cached data unless the app cache is cleared
+    (
+        flock 8
+        rm -f "${STEAMCMD_DIR}/appcache/appinfo.vdf" ~/Steam/appcache/appinfo.vdf
+    ) 8> "${STEAMCMD_LOCKFILE}"
+    steamcmd +login anonymous +app_info_update 1 +app_info_print "${SERVER_APPID}" 2>/dev/null \
+        | awk -F '"' '
+            $2 == "branches" { branches = 1 }
+            branches && $2 == "public" { public = 1 }
+            public && $2 == "buildid" { print $4; exit }
+        '
+}
+
+# Returns success if a newer build than the installed one is available, and
+# sets latest to its build id
+update_available() {
+    local installed
+    installed=$(installed_buildid)
+    latest=$(latest_buildid)
+    if [[ -z "${installed}" || -z "${latest}" ]]; then
+        log "Unable to determine build ids (installed: '${installed}', latest: '${latest}'), skipping"
+        return 2
+    fi
+    if [[ "${installed}" = "${latest}" ]]; then
+        log "Valheim server is up to date (build ${installed})"
+        return 1
+    fi
+    log "Valheim server update available (build ${installed} -> ${latest})"
+}
+
+# Total UDP datagrams received, over IPv4 and IPv6
+udp_datagrams() {
+    local v4 v6
+    v4=$(awk '/^Udp:/ { if (!col) { for (i = 1; i <= NF; i++) if ($i == "InDatagrams") col = i } else { print $col; exit } }' /proc/net/snmp 2>/dev/null)
+    v6=$(awk '$1 == "Udp6InDatagrams" { print $2 }' /proc/net/snmp6 2>/dev/null)
+    echo $(( ${v4:-0} + ${v6:-0} ))
+}
+
+# Players can't reliably be counted (Steam queries report 0 with crossplay),
+# so like lloesche/valheim-server, treat low UDP traffic as idle.
+server_is_idle() {
+    local before after
+    before=$(udp_datagrams)
+    sleep "${IDLE_DATAGRAM_WINDOW}"
+    after=$(udp_datagrams)
+    (( after - before <= IDLE_DATAGRAM_MAX_COUNT ))
+}
+
+# Blocks until the server has been idle for UPDATE_IDLE_CHECKS checks in a row
+wait_for_idle() {
+    local idle=0
+    log "Waiting for the server to be idle before updating"
+    while (( idle < UPDATE_IDLE_CHECKS )); do
+        if server_is_idle; then
+            idle=$(( idle + 1 ))
+        else
+            if (( idle > 0 )); then
+                log "Players are connected, waiting"
+            fi
+            idle=0
+        fi
+        if (( idle < UPDATE_IDLE_CHECKS )); then
+            sleep "${UPDATE_IDLE_CHECK_INTERVAL}"
+        fi
+    done
+    log "Server is idle"
+}
+
+# Asks bootstrap to stop the server, update and start it again
+request_restart() {
+    local pid
+    pid=$(cat "${SUPERVISOR_PIDFILE}" 2>/dev/null)
+    if [[ -z "${pid}" ]] || ! kill -USR1 "${pid}" 2>/dev/null; then
+        log "Unable to signal bootstrap to restart the server"
+        return 1
+    fi
+    log "Requested server restart to apply update"
+}
+
+main() {
+    if [[ "${UPDATE_INTERVAL}" -eq 0 ]]; then
+        log "Update checks are disabled"
+        return
+    fi
+    log "Checking for updates every ${UPDATE_INTERVAL} seconds"
+    while true; do
+        # bootstrap updates on start, so the first check can wait
+        sleep "${UPDATE_INTERVAL}"
+        run_hook "${PRE_UPDATE_CHECK_HOOK}"
+        if update_available; then
+            # Don't restart the server over and over if an update to this
+            # build was already tried but did not apply
+            if [[ "${latest}" = "${restarted_for}" ]]; then
+                log "Update to build ${latest} was already applied but the installed build did not change, not restarting again"
+            else
+                if is_true "${UPDATE_IF_IDLE}"; then
+                    wait_for_idle
+                fi
+                request_restart && restarted_for=${latest}
+            fi
+        fi
+        run_hook "${POST_UPDATE_CHECK_HOOK}"
+    done
+}
+
+case "$1" in
+    "")
+        main
+        ;;
+    check)
+        update_available
+        ;;
+    update)
+        update_available && request_restart
+        ;;
+    *)
+        echo "Usage: $0 [check|update]"
+        exit 1
+        ;;
+esac

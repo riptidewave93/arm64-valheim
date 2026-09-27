@@ -73,6 +73,29 @@ POST_BACKUP_HOOK=               # Command ran after a backup, @BACKUP_FILE@ is r
 
 Set `BACKUPS=false` to disable them. To create a backup by hand, run `docker exec valheim-server valheim-backup`.
 
+### Automatic Updates
+
+The container checks Steam for Valheim server updates periodically. When an update is found and no players are connected, the server is stopped (saving the world), backed up, updated and started again. Checks run using the following variables:
+```
+UPDATE_INTERVAL=900             # In seconds, how often to check for updates, defaults to 900. 0 disables update checks
+UPDATE_IF_IDLE=true             # Only update when no players are connected, defaults to true
+UPDATE_IDLE_CHECKS=5            # Number of idle checks in a row needed before updating, defaults to 5
+UPDATE_IDLE_CHECK_INTERVAL=60   # In seconds, time between idle checks, defaults to 60
+IDLE_DATAGRAM_WINDOW=3          # In seconds, how long each idle check watches for traffic, defaults to 3
+IDLE_DATAGRAM_MAX_COUNT=30      # Max UDP datagrams received during an idle check to still count as idle, defaults to 30
+SERVER_STOP_TIMEOUT=120         # In seconds, how long to wait for the server to stop before killing it, defaults to 120
+PRE_UPDATE_CHECK_HOOK=          # Command ran before each update check
+POST_UPDATE_CHECK_HOOK=         # Command ran after each update check
+PRE_RESTART_HOOK=               # Command ran after the server stopped for an update, before updating
+POST_RESTART_HOOK=              # Command ran after updating, before the server starts again
+```
+
+Player counts can't be queried reliably (crossplay servers always report 0), so like lloesche/valheim-server, the server is considered idle when it receives little UDP traffic.
+
+To check for an update by hand, run `docker exec valheim-server valheim-updater check`. To apply an available update right away, even with players connected, run `docker exec valheim-server valheim-updater update`.
+
+The server saves the world when stopped. If running in Kubernetes, set `terminationGracePeriodSeconds` high enough for this to finish (e.g. 120), as the default of 30 seconds may not be enough.
+
 ### Run the docker image
 
 ```

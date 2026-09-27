@@ -6,8 +6,7 @@
 #   string: params to run the server
 #   int: -1 is something is wrong.
 
-STEAMAPPID=892970
-VOLUME_DIR="/opt/valheim"
+. /usr/local/lib/valheim/common
 
 # box64 settings, exported so box64 actually sees them. Note box64 logs to
 # stdout unless BOX64_TRACE_FILE is set.
@@ -15,23 +14,6 @@ export BOX64_LOG=${BOX64_LOG:-1}
 export BOX64_TRACE=${BOX64_TRACE:-0}
 export BOX64_EMULATED_LIBS=libogg.so.0${BOX64_EMULATED_LIBS:+:$BOX64_EMULATED_LIBS}
 export BOX64_LD_PRELOAD=libogg.so.0${BOX64_LD_PRELOAD:+:$BOX64_LD_PRELOAD}
-
-# Accept the env var names used by lloesche/valheim-server as aliases, so
-# existing deployments can switch images without renaming everything.
-NAME=${NAME:-$SERVER_NAME}
-WORLD=${WORLD:-$WORLD_NAME}
-PASSWORD=${PASSWORD:-$SERVER_PASS}
-PORT=${PORT:-$SERVER_PORT}
-PUBLIC=${PUBLIC:-$SERVER_PUBLIC}
-SAVEDIR=${SAVEDIR:-$VOLUME_DIR/world}
-
-# Returns success for 1/true/yes, in any case
-is_true() {
-    case "${1,,}" in
-        1|true|yes) return 0 ;;
-        *) return 1 ;;
-    esac
-}
 
 getparams() {
     # Basic + default params values same order that PDF:
@@ -42,7 +24,7 @@ getparams() {
     ##  -world: Name of the world, defaults to default if unset.
     ##  -public: used the value of the param if defined, if not it will be a public server (1).
     ##  -saveinterval: Change how often the world will save in seconds.
-    params=(-nographics -batchmode -name "${NAME:-My World}" -port "${PORT:-2456}" -world "${WORLD:-default}")
+    params=(-nographics -batchmode -name "${NAME:-My World}" -port "${PORT}" -world "${WORLD}")
     if is_true "${PUBLIC:-1}"; then
         params+=(-public 1)
     else
@@ -107,22 +89,23 @@ write_idlist() {
 # Download steam and whatnot
 bootstrap() {
     # Use Valve's native ARM64 steamcmd
-    if [ ! -x ${VOLUME_DIR}/steamcmd/linuxarm64/steamcmd ]; then
+    if [ ! -x "${STEAMCMD_DIR}/linuxarm64/steamcmd" ]; then
         echo "Installing steamcmd..."
-        rm -rf ${VOLUME_DIR}/steamcmd
-        mkdir ${VOLUME_DIR}/steamcmd && cd ${VOLUME_DIR}/steamcmd
+        rm -rf "${STEAMCMD_DIR}"
+        mkdir "${STEAMCMD_DIR}" && cd "${STEAMCMD_DIR}"
         curl -sqL "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linuxarm64.tar.gz" | tar zxf -
         cd - > /dev/null
     fi
 
-    # If we exist, make sure we are up to date
+    # If we exist, make sure we are up to date. Retried, as the first run on
+    # a fresh steamcmd fails with "Missing configuration".
     echo "Ensuring valheim is up to date..."
-    cd ${VOLUME_DIR}/steamcmd
-    # Force the linux platform, as the server is only published for x86_64
-    ./steamcmd.sh +@sSteamCmdForcePlatformType linux +force_install_dir ${VOLUME_DIR}/valheim_server +login anonymous +app_update 896660 validate +quit
-    cd - > /dev/null
+    for attempt in 1 2 3; do
+        update_server && break
+        echo "steamcmd failed (attempt ${attempt}/3)"
+    done
 
-    if [ ! -f ${VOLUME_DIR}/valheim_server/valheim_server.x86_64 ]; then
+    if [ ! -f "${SERVER_DIR}/valheim_server.x86_64" ]; then
         echo "Valheim server is not installed, steamcmd failed! Exiting."
         exit 1
     fi
@@ -145,24 +128,65 @@ bootstrap() {
 
 }
 
-# Main function
-main() {
-    # set fun env stuff
-    export LD_LIBRARY_PATH=${VOLUME_DIR}/valheim_server/linux64:${LD_LIBRARY_PATH}
-    export SteamAppId=${STEAMAPPID}
-
-    # Move to the execution folder
-    cd ${VOLUME_DIR}/valheim_server
-
-    ## Checking the final parameters to use:
+# Starts the server in the background
+start_server() {
     echo "##############################"
     echo "Final Valheim parameters to run: ${params[*]}"
     echo "##############################"
+    (cd "${SERVER_DIR}" && exec "${server_cmd[@]}" ./valheim_server.x86_64 "${params[@]}") &
+    server_pid=$!
+}
 
-    # Starting the server:
-    # Start periodic world backups, unless disabled with BACKUPS=false.
-    # Ran in the background so the server stays PID 1 and gets signals directly.
+# Asks the server to shut down, which saves the world. SIGINT is what the
+# server handles for a clean shutdown. Killed if it has not exited in time.
+stop_server() {
+    if [[ -n "${server_pid}" ]] && kill -INT "${server_pid}" 2>/dev/null; then
+        echo "Stopping Valheim server..."
+        (
+            sleep "${SERVER_STOP_TIMEOUT:-120}"
+            echo "Valheim server did not stop in time, killing it"
+            kill -KILL "${server_pid}" 2>/dev/null
+        ) &
+        watchdog_pid=$!
+    fi
+}
+
+# Waits for the server to exit, sets server_rc to its exit code
+wait_server() {
+    # wait returns early whenever a trapped signal arrives, so keep waiting
+    # until the server has actually exited
+    while kill -0 "${server_pid}" 2>/dev/null; do
+        wait "${server_pid}"
+        server_rc=$?
+    done
+    if [[ -n "${watchdog_pid}" ]]; then
+        kill "${watchdog_pid}" 2>/dev/null
+        watchdog_pid=
+    fi
+}
+
+# Signal handlers
+on_shutdown() {
+    stopping=true
+    stop_server
+}
+
+on_restart() {
+    if [[ "${stopping}" != true ]]; then
+        restarting=true
+        stop_server
+    fi
+}
+
+# Main function
+main() {
+    # set fun env stuff
+    export LD_LIBRARY_PATH=${SERVER_DIR}/linux64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+    export SteamAppId=${STEAMAPPID}
+
+    # Start periodic world backups, unless disabled with BACKUPS=false
     if [[ "${BACKUPS}" =~ ^[0-9]+$ ]] || is_true "${BACKUPS:-true}"; then
+        backups=true
         echo "Starting world backups every ${BACKUPS_INTERVAL:-3600} seconds..."
         (
             while true; do
@@ -174,17 +198,45 @@ main() {
 
     # Optionally pin the server to specific CPU cores, e.g. the fast cores of
     # a big.LITTLE SoC. Defaults per image, see Dockerfile.
+    server_cmd=(box64)
     if [[ -n "${CPU_AFFINITY}" ]]; then
         if taskset -c "${CPU_AFFINITY}" true 2>/dev/null; then
             # box64 reports every core on the host to the server, which sizes
             # its thread pools from that, so only report the pinned cores
             export BOX64_MAXCPU=${BOX64_MAXCPU:-$(taskset -c "${CPU_AFFINITY}" nproc)}
             echo "Pinning Valheim server to CPU cores ${CPU_AFFINITY} (${BOX64_MAXCPU} cores)..."
-            exec taskset -c "${CPU_AFFINITY}" box64 ./valheim_server.x86_64 "${params[@]}"
+            server_cmd=(taskset -c "${CPU_AFFINITY}" box64)
+        else
+            echo "Unable to pin Valheim server to CPU cores ${CPU_AFFINITY}, running unpinned"
         fi
-        echo "Unable to pin Valheim server to CPU cores ${CPU_AFFINITY}, running unpinned"
     fi
-    exec box64 ./valheim_server.x86_64 "${params[@]}"
+
+    # Start periodic update checks, the updater signals us with SIGUSR1 when
+    # the server should be restarted to apply an update
+    echo $$ > "${SUPERVISOR_PIDFILE}"
+    trap on_shutdown TERM INT
+    trap on_restart USR1
+    valheim-updater &
+
+    # Run the server, restarting it when requested by the updater
+    while true; do
+        start_server
+        wait_server
+
+        if [[ "${restarting}" != true || "${stopping}" = true ]]; then
+            echo "Valheim server exited with code ${server_rc}"
+            exit "${server_rc}"
+        fi
+
+        restarting=false
+        echo "Valheim server stopped, updating..."
+        run_hook "${PRE_RESTART_HOOK}"
+        if [[ "${backups}" = true ]]; then
+            valheim-backup
+        fi
+        update_server
+        run_hook "${POST_RESTART_HOOK}"
+    done
 }
 
 getparams
