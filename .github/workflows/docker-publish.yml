@@ -77,6 +77,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # cpu_affinity is only set for SoCs with mixed fast/slow cores, the
+        # others (pi4: 4x A72, pi5: 4x A76, tegra-t194: Carmel) are uniform
         include:
           - tag: arm64
             box64: box64
@@ -86,6 +88,8 @@ jobs:
             box64: box64-rpi5arm64ps16k
           - tag: rk3588
             box64: box64-rk3588
+            # Pin to the Cortex-A76 cores
+            cpu_affinity: 4-7
           - tag: tegra-t194
             box64: box64-tegra-t194
     permissions:
@@ -128,6 +132,7 @@ jobs:
           build-args: |
             BASE_IMAGE=base
             BOX64_PACKAGE=${{ matrix.box64 }}
+            CPU_AFFINITY=${{ matrix.cpu_affinity }}
           build-contexts: |
             base=oci-layout://${{ runner.temp }}/base@${{ needs.base.outputs.digest }}
           push: ${{ github.event_name != 'pull_request' }}

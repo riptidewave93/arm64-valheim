@@ -140,17 +140,11 @@ bootstrap() {
     write_idlist bannedlist.txt "${BANNEDLIST_IDS}"
     write_idlist permittedlist.txt "${PERMITTEDLIST_IDS}"
 
-    # Setup box64 memory tweaks
-    # https://github.com/ptitSeb/box64/issues/1182
-    if [ ! -f "~/.box64rc" ]; then
-        echo "Adding box64 configuration..."
-        cat <<-EOF > ~/.box64rc
-[valheim_server.x86_64]
-BOX64_DYNAREC_BLEEDING_EDGE=0
-BOX64_DYNAREC_BIGBLOCK=0
-BOX64_DYNAREC_STRONGMEM=3
-EOF
-    fi
+    # box64 detects Mono (BOX64_DYNAREC_BLEEDING_EDGE=1, the default) and
+    # applies BIGBLOCK=0 and STRONGMEM=1 for it. The stricter settings once
+    # needed (https://github.com/ptitSeb/box64/issues/1182) are much slower,
+    # but can still be set via env, e.g. BOX64_DYNAREC_STRONGMEM=3.
+    rm -f ~/.box64rc
 
 }
 
@@ -181,6 +175,15 @@ main() {
         ) &
     fi
 
+    # Optionally pin the server to specific CPU cores, e.g. the fast cores of
+    # a big.LITTLE SoC. Defaults per image, see Dockerfile.
+    if [[ -n "${CPU_AFFINITY}" ]]; then
+        if taskset -c "${CPU_AFFINITY}" true 2>/dev/null; then
+            echo "Pinning Valheim server to CPU cores ${CPU_AFFINITY}..."
+            exec taskset -c "${CPU_AFFINITY}" box64 ./valheim_server.x86_64 "${params[@]}"
+        fi
+        echo "Unable to pin Valheim server to CPU cores ${CPU_AFFINITY}, running unpinned"
+    fi
     exec box64 ./valheim_server.x86_64 "${params[@]}"
 }
 

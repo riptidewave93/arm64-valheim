@@ -33,6 +33,7 @@ TZ=America/Chicago              # Timezone for the container, defaults to UTC
 ADMINLIST_IDS="123 456"         # SteamIDs (space or comma separated) written to adminlist.txt in SAVEDIR
 BANNEDLIST_IDS="123 456"        # SteamIDs written to bannedlist.txt in SAVEDIR
 PERMITTEDLIST_IDS="123 456"     # SteamIDs written to permittedlist.txt in SAVEDIR
+CPU_AFFINITY=4-7                # Pin the server to these CPU cores (taskset format). Defaults to 4-7 (the A76 cores) on rk3588, unset otherwise. Set empty to disable
 ```
 
 Boolean values (`PUBLIC`, `CROSSPLAY`) accept `1`/`0`, `true`/`false` or `yes`/`no` in any case. The `*LIST_IDS` files are only written when the variable is set, so manual edits are kept otherwise.
@@ -46,6 +47,16 @@ For easier migration from [lloesche/valheim-server](https://github.com/lloesche/
 | SERVER_PASS       | PASSWORD   |
 | SERVER_PORT       | PORT       |
 | SERVER_PUBLIC     | PUBLIC     |
+
+### Performance
+
+The server runs under box64 using its default settings, which detect Valheim's Mono runtime and apply suitable settings for it. Any `BOX64_*` [environment variable](https://github.com/ptitSeb/box64/blob/main/docs/USAGE.md) set on the container is passed to box64. If you experience crashes, the stricter (and much slower) settings previously used by this image can be restored with:
+```
+BOX64_DYNAREC_BIGBLOCK=0
+BOX64_DYNAREC_STRONGMEM=3
+```
+
+On big.LITTLE SoCs the server is pinned to the fast cores by default via `CPU_AFFINITY` (currently the `rk3588` image, cores 4-7). If running in Kubernetes, avoid CPU limits that throttle the container.
 
 ### World Backups
 
