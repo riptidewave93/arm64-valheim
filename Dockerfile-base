@@ -21,13 +21,24 @@ ENV LANG=en_US.UTF-8
 ENV LANGUAGE=en_US:en
 ENV LC_ALL=en_US.UTF-8
 
-# Add the box64 repo, install server dependencies, and cleanup
+# Add the box64 repo, install server dependencies, and cleanup. Also adds the
+# x86_64 libogg for box64 to emulate, as crossplay's libparty.so needs
+# ogg_stream_pageout_fill which box64's wrapped libogg does not provide.
 RUN wget https://ryanfortner.github.io/box64-debs/box64.list -O /etc/apt/sources.list.d/box64.list \
     && wget -qO- https://ryanfortner.github.io/box64-debs/KEY.gpg | gpg --dearmor -o /etc/apt/trusted.gpg.d/box64-debs-archive-keyring.gpg \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
         libatomic1 \
         libpulse-mainloop-glib0 \
+    && cd /tmp \
+    && dpkg --add-architecture amd64 \
+    && apt-get update \
+    && apt-get download libogg0:amd64 \
+    && dpkg-deb -x libogg0_*_amd64.deb /tmp/libogg-amd64 \
+    && mkdir -p /usr/lib/x86_64-linux-gnu \
+    && cp -L /tmp/libogg-amd64/usr/lib/x86_64-linux-gnu/libogg.so.0 /usr/lib/x86_64-linux-gnu/ \
+    && rm -rf /tmp/libogg* \
+    && dpkg --remove-architecture amd64 \
     && apt-get purge -y wget gpg \
     && apt-get autoremove -y \
     && apt-get clean \

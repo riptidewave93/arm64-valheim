@@ -9,14 +9,15 @@
 STEAMAPPID=892970
 VOLUME_DIR="/opt/valheim"
 
-# box64 settings, exported so box64 actually sees them
-export BOX64_LD_LIBRARY_PATH=${VOLUME_DIR}/valheim_server/linux64${BOX64_LD_LIBRARY_PATH:+:$BOX64_LD_LIBRARY_PATH}
+# box64 settings, exported so box64 actually sees them. Note box64 logs to
+# stdout unless BOX64_TRACE_FILE is set.
 export BOX64_LOG=${BOX64_LOG:-1}
-export BOX64_TRACE_FILE=${VOLUME_DIR}/valheim_server/output.log
 export BOX64_TRACE=${BOX64_TRACE:-0}
 # libparty.so (PlayFab Party, used for crossplay) uses libogg without linking
 # it, relying on libpulse to have loaded it. box64 runs libpulse natively, so
-# preload box64's wrapped libogg to make those symbols available.
+# preload libogg to make those symbols available. The x86_64 libogg from the
+# image is emulated, as box64's wrapped libogg lacks ogg_stream_pageout_fill.
+export BOX64_EMULATED_LIBS=libogg.so.0${BOX64_EMULATED_LIBS:+:$BOX64_EMULATED_LIBS}
 export BOX64_LD_PRELOAD=libogg.so.0${BOX64_LD_PRELOAD:+:$BOX64_LD_PRELOAD}
 
 # Accept the env var names used by lloesche/valheim-server as aliases, so
