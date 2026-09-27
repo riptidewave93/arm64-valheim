@@ -7,9 +7,8 @@
 # Modeled after the backup system in lloesche/valheim-server, see README.md
 # for the supported variables.
 
-VOLUME_DIR="/opt/valheim"
-SAVEDIR=${SAVEDIR:-$VOLUME_DIR/world}
-WORLD=${WORLD:-${WORLD_NAME:-default}}
+. /usr/local/lib/valheim/common
+
 BACKUPS_DIRECTORY=${BACKUPS_DIRECTORY:-$SAVEDIR/backups}
 BACKUPS_DIRECTORY=${BACKUPS_DIRECTORY%/}
 BACKUPS_MAX_AGE=${BACKUPS_MAX_AGE:-3}
@@ -19,24 +18,6 @@ LOCKFILE=/tmp/valheim-backup.lock
 
 log() {
     echo "[valheim-backup] $*"
-}
-
-# Returns success for 1/true/yes, in any case
-is_true() {
-    case "${1,,}" in
-        1|true|yes) return 0 ;;
-        *) return 1 ;;
-    esac
-}
-
-# Runs a PRE/POST backup hook, replacing @BACKUP_FILE@ with the backup path
-run_hook() {
-    local hook="$1" backup_file="$2"
-    if [[ -n "${hook}" ]]; then
-        hook=${hook//@BACKUP_FILE@/$backup_file}
-        log "Running backup hook: ${hook}"
-        eval "${hook}"
-    fi
 }
 
 # Marker files of every committed save generation. The server writes

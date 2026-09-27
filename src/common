@@ -1,0 +1,53 @@
+# Shared settings and helpers, sourced by bootstrap, valheim-backup and
+# valheim-updater.
+
+STEAMAPPID=892970
+SERVER_APPID=896660
+VOLUME_DIR="/opt/valheim"
+STEAMCMD_DIR="${VOLUME_DIR}/steamcmd"
+SERVER_DIR="${VOLUME_DIR}/valheim_server"
+STEAMCMD_LOCKFILE=/tmp/steamcmd.lock
+SUPERVISOR_PIDFILE=/tmp/valheim-supervisor.pid
+
+# Accept the env var names used by lloesche/valheim-server as aliases, so
+# existing deployments can switch images without renaming everything.
+NAME=${NAME:-$SERVER_NAME}
+WORLD=${WORLD:-${WORLD_NAME:-default}}
+PASSWORD=${PASSWORD:-$SERVER_PASS}
+PORT=${PORT:-${SERVER_PORT:-2456}}
+PUBLIC=${PUBLIC:-$SERVER_PUBLIC}
+SAVEDIR=${SAVEDIR:-$VOLUME_DIR/world}
+
+# Returns success for 1/true/yes, in any case
+is_true() {
+    case "${1,,}" in
+        1|true|yes) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# Runs a hook command if set, replacing @BACKUP_FILE@ with $2 if given
+run_hook() {
+    local hook="$1"
+    if [[ -n "${hook}" ]]; then
+        hook=${hook//@BACKUP_FILE@/$2}
+        echo "Running hook: ${hook}"
+        eval "${hook}"
+    fi
+}
+
+# Runs steamcmd with the given commands. Only one steamcmd may run at a time,
+# so this waits for any other run (e.g. an update check) to finish.
+steamcmd() {
+    (
+        flock 8
+        # Force the linux platform, as the server is only published for x86_64
+        cd "${STEAMCMD_DIR}" \
+            && ./steamcmd.sh +@sSteamCmdForcePlatformType linux "$@" +quit
+    ) 8> "${STEAMCMD_LOCKFILE}"
+}
+
+# Installs or updates, and validates, the Valheim server
+update_server() {
+    steamcmd +force_install_dir "${SERVER_DIR}" +login anonymous +app_update "${SERVER_APPID}" validate
+}
