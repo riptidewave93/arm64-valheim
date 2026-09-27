@@ -7,7 +7,7 @@ on:
     tags: [ 'v*.*.*' ]
   pull_request:
     branches: [ "main" ]
-  schedule: 
+  schedule:
    - cron: '0 14 * * 2'
 
 env:
@@ -15,42 +15,26 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - dockerfile: ./Dockerfile-arm64
-            image: ${{ github.repository }}
-            tags: ghcr.io/${{ github.repository }}:arm64
-          - dockerfile: ./Dockerfile-pi4
-            image: ${{ github.repository }}
-            tags: ghcr.io/${{ github.repository }}:pi4
-          - dockerfile: ./Dockerfile-pi5
-            image: ${{ github.repository }}
-            tags: ghcr.io/${{ github.repository }}:pi5
-          - dockerfile: ./Dockerfile-rk3588
-            image: ${{ github.repository }}
-            tags: ghcr.io/${{ github.repository }}:rk3588
-          - dockerfile: ./Dockerfile-tegra-t194
-            image: ${{ github.repository }}
-            tags: ghcr.io/${{ github.repository }}:tegra-t194
+  # Build the shared base image once, and hand it to the variant builds as an
+  # OCI layout artifact so every variant is built on this exact base.
+  base:
+    runs-on: ubuntu-26.04-arm
     permissions:
       contents: read
       packages: write
-      id-token: write
+    outputs:
+      digest: ${{ steps.build-and-push.outputs.digest }}
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-  
+        uses: docker/setup-buildx-action@v4
+
       - name: Log into registry ${{ env.REGISTRY }}
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -58,19 +42,94 @@ jobs:
 
       - name: Extract Docker metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
-          images: ${{ matrix.tags }}
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
 
-      - name: Build and push Docker image
+      # Scheduled runs skip the cache so the weekly build picks up new
+      # Debian and box86/box64 packages.
+      - name: Build and push base image
         id: build-and-push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           platforms: linux/arm64
           context: .
-          file: ${{ matrix.dockerfile }}
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ matrix.tags }}
+          file: ./Dockerfile-base
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:base
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          outputs: |
+            type=oci,dest=${{ runner.temp }}/base,tar=false
+            ${{ github.event_name != 'pull_request' && 'type=registry' || '' }}
+          no-cache: ${{ github.event_name == 'schedule' }}
+          cache-from: type=gha,scope=base
+          cache-to: type=gha,scope=base,mode=max
+
+      - name: Upload base image
+        uses: actions/upload-artifact@v7
+        with:
+          name: base-image
+          path: ${{ runner.temp }}/base
+          retention-days: 1
+
+  build:
+    needs: base
+    runs-on: ubuntu-26.04-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - tag: arm64
+            box64: box64
+          - tag: pi4
+            box64: box64-rpi4arm64
+          - tag: pi5
+            box64: box64-rpi5arm64ps16k
+          - tag: rk3588
+            box64: box64-rk3588
+          - tag: tegra-t194
+            box64: box64-tegra-t194
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Download base image
+        uses: actions/download-artifact@v8
+        with:
+          name: base-image
+          path: ${{ runner.temp }}/base
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log into registry ${{ env.REGISTRY }}
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v7
+        with:
+          platforms: linux/arm64
+          context: .
+          file: ./Dockerfile
+          build-args: |
+            BASE_IMAGE=base
+            BOX64_PACKAGE=${{ matrix.box64 }}
+          build-contexts: |
+            base=oci-layout://${{ runner.temp }}/base@${{ needs.base.outputs.digest }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.tag }}
+          labels: ${{ steps.meta.outputs.labels }}

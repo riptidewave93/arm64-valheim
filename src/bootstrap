@@ -13,6 +13,23 @@ BOX64_LOG=${BOX64_LOG:-1}
 BOX64_TRACE_FILE=${VOLUME_DIR}/valheim_server/output.log
 BOX64_TRACE=${BOX64_TRACE:-0}
 
+# Accept the env var names used by lloesche/valheim-server as aliases, so
+# existing deployments can switch images without renaming everything.
+NAME=${NAME:-$SERVER_NAME}
+WORLD=${WORLD:-$WORLD_NAME}
+PASSWORD=${PASSWORD:-$SERVER_PASS}
+PORT=${PORT:-$SERVER_PORT}
+PUBLIC=${PUBLIC:-$SERVER_PUBLIC}
+SAVEDIR=${SAVEDIR:-$VOLUME_DIR/world}
+
+# Returns success for 1/true/yes, in any case
+is_true() {
+    case "${1,,}" in
+        1|true|yes) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 getparams() {
     # Basic + default params values same order that PDF:
     ##  -nographics: basic param for the valheim documentation.
@@ -22,48 +39,65 @@ getparams() {
     ##  -world: Name of the world, defaults to default if unset.
     ##  -public: used the value of the param if defined, if not it will be a public server (1).
     ##  -saveinterval: Change how often the world will save in seconds.
-    params="-nographics -batchmode -name ${NAME:-My World} -port ${PORT:-2456} -world ${WORLD-default} -public ${PUBLIC:-1} -saveinterval ${SAVEINTERVAL:-1800}"
+    params=(-nographics -batchmode -name "${NAME:-My World}" -port "${PORT:-2456}" -world "${WORLD:-default}")
+    if is_true "${PUBLIC:-1}"; then
+        params+=(-public 1)
+    else
+        params+=(-public 0)
+    fi
+    params+=(-saveinterval "${SAVEINTERVAL:-1800}")
 
     ## -password: Password for the server.
     if [[ -z "${PASSWORD}" ]]; then
         echo "The variable PASSWORD is not defined! Exiting, as valheim servers require passwords now!"
         exit 1
     fi
-    params="$params -password ${PASSWORD}"
+    params+=(-password "${PASSWORD}")
 
     ##  -savedir: Where the data will be saved.
     ##  Overrides the default save path where Worlds and permission-files are stored.
-    ##  Save folder for the data (if not defined can run, but the world will be saved on the container, bad idea):
-    if [[ -z "${SAVEDIR}" ]]; then
-        echo "The variable SAVEDIR is not defined, will use default of ${VOLUME_DIR}/world!"
-    fi
-    params="$params -savedir ${SAVEDIR:-$VOLUME_DIR/world}"
+    params+=(-savedir "${SAVEDIR}")
 
     ##  -logFile: Sets the location to save the log file.
     if [[ -z "${LOGFILE}" ]]; then
         echo "The variable LOGFILE is not defined. Debug messages will be displayed on standard output."
     else
-        params="$params -logFile ${LOGFILE}"
+        params+=(-logFile "${LOGFILE}")
     fi
 
     ##  -backups: Sets how many automatic backups will be kept. 
     ##  The first is the ‘short’ backup length, and the rest are the ‘long’ backup length.
     ##  By default that means one backup that is 2 hours old, and 3 backups that are 12 hours apart.
-    params="$params -backups ${BACKUPS:-4}"
+    ##  BACKUPS=true/false instead toggles our own world backups, see valheim-backup.
+    if [[ "${BACKUPS}" =~ ^[0-9]+$ ]]; then
+        params+=(-backups "${BACKUPS}")
+    else
+        params+=(-backups 4)
+    fi
 
     ##  -backupshort: Sets the interval between the first automatic backups.
     ##  Default is 2 hours (7200 seconds).
-    params="$params -backupshort ${BACKUPSHORT:-7200}"
+    params+=(-backupshort "${BACKUPSHORT:-7200}")
 
     ##  -backuplong: Sets the interval between the subsequent automatic backups.
     ##  Default is 12 hours (43200 seconds).
-    params="$params -backuplong ${BACKUPLONG:-43200}"
+    params+=(-backuplong "${BACKUPLONG:-43200}")
 
     ##  -crossplay: Runs the Server on the Crossplay backend (PlayFab), which lets users from any platform join.
     ##  If you do not include this argument (or set to FALSE in the env file), the Steam backend is used, which 
     ##  means only Steam users can see and join the Server.
-    if [ "${CROSSPLAY}" = "TRUE" ]; then
-        params="$params -crossplay"
+    if is_true "${CROSSPLAY}"; then
+        params+=(-crossplay)
+    fi
+}
+
+# Write a list of SteamIDs (space or comma separated) to a permission file
+# in the save dir. Left untouched when unset, so manual edits are kept.
+write_idlist() {
+    local file="$1" ids="$2"
+    if [[ -n "${ids}" ]]; then
+        echo "Writing ${file}..."
+        tr -s ' ,' '\n' <<< "${ids}" | sed '/^$/d' > "${SAVEDIR}/${file}"
     fi
 }
 
@@ -83,9 +117,14 @@ bootstrap() {
     cd - > /dev/null
 
     # Ensure our world dir exists
-    if [ ! -d "${SAVEDIR:-$VOLUME_DIR/world}" ]; then
-        mkdir -p "${SAVEDIR:-$VOLUME_DIR/world}"
+    if [ ! -d "${SAVEDIR}" ]; then
+        mkdir -p "${SAVEDIR}"
     fi
+
+    # Setup server permission lists
+    write_idlist adminlist.txt "${ADMINLIST_IDS}"
+    write_idlist bannedlist.txt "${BANNEDLIST_IDS}"
+    write_idlist permittedlist.txt "${PERMITTEDLIST_IDS}"
 
     # Setup box64 memory tweaks
     # https://github.com/ptitSeb/box64/issues/1182
@@ -112,11 +151,23 @@ main() {
 
     ## Checking the final parameters to use:
     echo "##############################"
-    echo "Final Valheim parameters to run: $params"
+    echo "Final Valheim parameters to run: ${params[*]}"
     echo "##############################"
 
     # Starting the server:
-    exec box64 ./valheim_server.x86_64 $params
+    # Start periodic world backups, unless disabled with BACKUPS=false.
+    # Ran in the background so the server stays PID 1 and gets signals directly.
+    if [[ "${BACKUPS}" =~ ^[0-9]+$ ]] || is_true "${BACKUPS:-true}"; then
+        echo "Starting world backups every ${BACKUPS_INTERVAL:-3600} seconds..."
+        (
+            while true; do
+                valheim-backup
+                sleep "${BACKUPS_INTERVAL:-3600}"
+            done
+        ) &
+    fi
+
+    exec box64 ./valheim_server.x86_64 "${params[@]}"
 }
 
 getparams

@@ -1,0 +1,149 @@
+#!/bin/bash
+
+# Creates a backup of the worlds directory, then removes old backups.
+# Ran periodically by bootstrap, and can be ran by hand to force a backup:
+#   docker exec valheim-server valheim-backup
+#
+# Modeled after the backup system in lloesche/valheim-server, see README.md
+# for the supported variables.
+
+VOLUME_DIR="/opt/valheim"
+SAVEDIR=${SAVEDIR:-$VOLUME_DIR/world}
+WORLD=${WORLD:-${WORLD_NAME:-default}}
+BACKUPS_DIRECTORY=${BACKUPS_DIRECTORY:-$SAVEDIR/backups}
+BACKUPS_DIRECTORY=${BACKUPS_DIRECTORY%/}
+BACKUPS_MAX_AGE=${BACKUPS_MAX_AGE:-3}
+BACKUPS_MAX_COUNT=${BACKUPS_MAX_COUNT:-0}
+BACKUPS_ZIP=${BACKUPS_ZIP:-true}
+LOCKFILE=/tmp/valheim-backup.lock
+
+log() {
+    echo "[valheim-backup] $*"
+}
+
+# Returns success for 1/true/yes, in any case
+is_true() {
+    case "${1,,}" in
+        1|true|yes) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# Runs a PRE/POST backup hook, replacing @BACKUP_FILE@ with the backup path
+run_hook() {
+    local hook="$1" backup_file="$2"
+    if [[ -n "${hook}" ]]; then
+        hook=${hook//@BACKUP_FILE@/$backup_file}
+        log "Running backup hook: ${hook}"
+        eval "${hook}"
+    fi
+}
+
+# Marker files of every committed save generation. The server writes
+# _main.<n>.ok last and only then deletes the chunks it superseded, so an
+# unchanged marker set across a read means nothing was removed underneath it.
+save_generations() {
+    find "$1" -maxdepth 1 -type f -name '_main.*.ok' -printf '%f\n' 2>/dev/null | sort | tr '\n' ' '
+}
+
+# Runs archive command $3... producing $2, retrying if world directory $1
+# was saved while being read. Returns the command's exit status.
+archive_stable() {
+    local world_folder="$1" backup_file="$2" attempt before after rc
+    shift 2
+
+    if [[ ! -d "${world_folder}" ]]; then
+        "$@"
+        return
+    fi
+
+    for attempt in 1 2 3; do
+        before=$(save_generations "${world_folder}")
+        rm -rf -- "${backup_file}"
+        "$@"
+        rc=$?
+        after=$(save_generations "${world_folder}")
+        if [[ "${before}" = "${after}" ]]; then
+            return "${rc}"
+        fi
+        log "World ${WORLD} was saved during backup, retrying (attempt ${attempt})"
+    done
+
+    log "WARNING: Could not capture ${world_folder} between saves, keeping ${backup_file} but it may be missing chunks"
+    return "${rc}"
+}
+
+# Uncompressed copy of the worlds directory, without Valheim's own backups
+copy_worlds() {
+    local worlds_dir="$1" backup_dir="$2"
+    mkdir -p "${backup_dir}" \
+        && cp -a "${worlds_dir}/." "${backup_dir}/" \
+        && find "${backup_dir}" -depth -name '*_backup_auto-*' -exec rm -rf {} + \
+        && touch "${backup_dir}"
+}
+
+backup() {
+    local worlds_dir backup_file
+    if [[ -d "${SAVEDIR}/worlds_local" ]]; then
+        worlds_dir="${SAVEDIR}/worlds_local"
+    elif [[ -d "${SAVEDIR}/worlds" ]]; then
+        worlds_dir="${SAVEDIR}/worlds"
+    else
+        log "No worlds to backup"
+        return
+    fi
+
+    mkdir -p "${BACKUPS_DIRECTORY}"
+    backup_file="${BACKUPS_DIRECTORY}/worlds-$(date +%Y%m%d-%H%M%S)"
+
+    if is_true "${BACKUPS_ZIP}"; then
+        backup_file="${backup_file}.zip"
+        run_hook "${PRE_BACKUP_HOOK}" "${backup_file}"
+        log "Backing up ${worlds_dir} to ${backup_file}"
+        # zip needs to run from the worlds dir to keep paths relative
+        archive_stable "${worlds_dir}/${WORLD}" "${backup_file}" \
+            bash -c 'cd "$1" && zip -qr "$2" . -x "*_backup_auto-*"' _ "${worlds_dir}" "${backup_file}"
+    else
+        run_hook "${PRE_BACKUP_HOOK}" "${backup_file}"
+        log "Backing up ${worlds_dir} to ${backup_file}"
+        archive_stable "${worlds_dir}/${WORLD}" "${backup_file}" \
+            copy_worlds "${worlds_dir}" "${backup_file}"
+    fi
+
+    # A partial backup looks like a whole one, so drop it
+    if [[ $? -ne 0 ]]; then
+        log "ERROR: Failed to create ${backup_file}"
+        rm -rf -- "${backup_file}"
+        return 1
+    fi
+    run_hook "${POST_BACKUP_HOOK}" "${backup_file}"
+}
+
+flush_old() {
+    [[ -d "${BACKUPS_DIRECTORY}" ]] || return
+
+    if [[ "${BACKUPS_MAX_COUNT}" -gt 0 ]]; then
+        log "Removing all but the newest ${BACKUPS_MAX_COUNT} backups"
+        find "${BACKUPS_DIRECTORY}" -mindepth 1 -maxdepth 1 -name 'worlds-*' -printf '%T@ %p\0' \
+            | sort -z -n -r | cut -z -d ' ' -f 2- | tail -z -n +$((BACKUPS_MAX_COUNT + 1)) \
+            | xargs -0 -r rm -rfv --
+    fi
+
+    if [[ "${BACKUPS_MAX_AGE}" -gt 0 ]]; then
+        log "Removing backups older than ${BACKUPS_MAX_AGE} days"
+        find "${BACKUPS_DIRECTORY}" -mindepth 1 -maxdepth 1 -name 'worlds-*' \
+            -mmin +$((BACKUPS_MAX_AGE * 60 * 24)) -print -exec rm -rf {} +
+    fi
+}
+
+# Only allow a single backup to run at a time
+exec 9> "${LOCKFILE}"
+if ! flock -n 9; then
+    log "Another backup is already running, skipping"
+    exit 0
+fi
+
+backup
+rc=$?
+flush_old
+exit "${rc}"

@@ -9,13 +9,6 @@ Note that platform specific ARM64 images are built, and are split via docker tag
 * rk3588 - For Rockchip RK3588/RK3588S targets on the Rockchip Kernel
 * tegra-t194 - For Nvidia Jetson/Xavier boards
 
-## Create image (optional)
-
-Building the image takes around 5~ minutes.
-1. Ensure you have `qemu-user-static` installed on your host machine
-2. Clone repo `git clone https://github.com/riptidewave93/arm64-valheim`
-3. Build the image `docker build --platform linux/arm64 --tag arm64-valheim -f Dockerfile .`
-
 ## Run container
 
 Note that on first boot it may take a bit to download Valheim server, and generate the world, so be patient!
@@ -32,11 +25,42 @@ WORLD=YourWorldName             # Name of the wold file, defaults to default
 SAVEINTERVAL=1800               # How often the world should save, defaults to 1800
 SAVEDIR=/opt/valheim/world      # Directory for the game files, needs to be to a volume mount to prevent data loss!
 LOGFILE=/opt/valheim/log.txt    # Logfile for the gameserver, if unset, logs to stdout
-BACKUPS=4                       # Number of backups to keep, defaults to 4
-BACKUPSHORT=7200                # In seconds, how long to wait for first world backup, defaults to 7200
-BACKUPLONG=43200                # In seconds, how long to wait for world backups AFTER the first world backup, defaults to 43200
-CROSSPLAY=TRUE                  # If set to TRUE, will enable crossplay. defaults to being unset, so crossplay disabled
+BACKUPS=4                       # Number of Valheim built-in (-backups) backups to keep, defaults to 4. Set to false to disable world backups (see below)
+BACKUPSHORT=7200                # In seconds, how long to wait for first Valheim built-in backup, defaults to 7200
+BACKUPLONG=43200                # In seconds, how long to wait for Valheim built-in backups AFTER the first one, defaults to 43200
+CROSSPLAY=true                  # If set to true, will enable crossplay. defaults to being unset, so crossplay disabled
+TZ=America/Chicago              # Timezone for the container, defaults to UTC
+ADMINLIST_IDS="123 456"         # SteamIDs (space or comma separated) written to adminlist.txt in SAVEDIR
+BANNEDLIST_IDS="123 456"        # SteamIDs written to bannedlist.txt in SAVEDIR
+PERMITTEDLIST_IDS="123 456"     # SteamIDs written to permittedlist.txt in SAVEDIR
 ```
+
+Boolean values (`PUBLIC`, `CROSSPLAY`) accept `1`/`0`, `true`/`false` or `yes`/`no` in any case. The `*LIST_IDS` files are only written when the variable is set, so manual edits are kept otherwise.
+
+For easier migration from [lloesche/valheim-server](https://github.com/lloesche/valheim-server), the following aliases are also accepted:
+
+| Alias             | Same as    |
+|-------------------|------------|
+| SERVER_NAME       | NAME       |
+| WORLD_NAME        | WORLD      |
+| SERVER_PASS       | PASSWORD   |
+| SERVER_PORT       | PORT       |
+| SERVER_PUBLIC     | PUBLIC     |
+
+### World Backups
+
+On top of Valheim's built-in backups, the container creates a backup of the `worlds_local` directory on startup and then periodically, modeled after the backup system in lloesche/valheim-server:
+```
+BACKUPS_INTERVAL=3600           # In seconds, how often to create a backup, defaults to 3600
+BACKUPS_DIRECTORY=/opt/valheim/world/backups # Where backups are stored, defaults to SAVEDIR/backups
+BACKUPS_MAX_AGE=3               # In days, backups older than this are removed, defaults to 3 (0 disables)
+BACKUPS_MAX_COUNT=0             # Maximum number of backups kept, defaults to 0 (unlimited)
+BACKUPS_ZIP=true                # Compress backups with zip, if false backups are stored as directories, defaults to true
+PRE_BACKUP_HOOK=                # Command ran before a backup, @BACKUP_FILE@ is replaced with the backup path
+POST_BACKUP_HOOK=               # Command ran after a backup, @BACKUP_FILE@ is replaced with the backup path
+```
+
+Set `BACKUPS=false` to disable them. To create a backup by hand, run `docker exec valheim-server valheim-backup`.
 
 ### Run the docker image
 
@@ -55,8 +79,8 @@ services:
     environment:
       - PASSWORD=password
     ports:
-      - "2456-2457:2456-2457/udp"
-      - "2456-2457:2456-2457/tcp"
+      - "2456-2458:2456-2458/tcp"
+      - "2456-2458:2456-2458/udp"
     volumes:
       - "valheim-data:/opt/valheim"
     restart: unless-stopped
@@ -68,6 +92,7 @@ volumes:
 
 ## Thanks to the following open source projects
 - [pi4valheim (forked)](https://github.com/Evirth/pi4valheim)
+- [lloesche/valheim-server](https://github.com/lloesche/valheim-server)
 - [box86](https://github.com/ptitSeb/box86)
 - [box64](https://github.com/ptitSeb/box64)
 - [docker](docker.com)
