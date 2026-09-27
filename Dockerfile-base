@@ -7,6 +7,7 @@ RUN apt-get update && apt-get full-upgrade -y \
         locales \
         curl \
         libsdl2-2.0-0 \
+        libsdl3-0 \
         wget \
         gpg \
         ca-certificates \
