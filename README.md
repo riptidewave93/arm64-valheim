@@ -1,6 +1,6 @@
 # Valheim server for ARM64
 
-Experimental docker image to run an ARM64 Valheim server based on [pi4valheim by Evirth](https://github.com/Evirth/pi4valheim), box86 and box64.
+Experimental docker image to run an ARM64 Valheim server based on [pi4valheim by Evirth](https://github.com/Evirth/pi4valheim) and box64. The Valheim server runs under box64, while Steam downloads use Valve's native ARM64 steamcmd.
 
 Note that platform specific ARM64 images are built, and are split via docker tag:
 * arm64 - For generic arm64 targets
@@ -93,6 +93,5 @@ volumes:
 ## Thanks to the following open source projects
 - [pi4valheim (forked)](https://github.com/Evirth/pi4valheim)
 - [lloesche/valheim-server](https://github.com/lloesche/valheim-server)
-- [box86](https://github.com/ptitSeb/box86)
 - [box64](https://github.com/ptitSeb/box64)
 - [docker](docker.com)

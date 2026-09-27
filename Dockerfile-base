@@ -2,11 +2,9 @@
 FROM debian:trixie-slim
 
 # Install tools required for the project
-RUN dpkg --add-architecture armhf \
-    && apt-get update && apt-get full-upgrade -y \
+RUN apt-get update && apt-get full-upgrade -y \
     && apt-get install -y --no-install-recommends \
         locales \
-        gcc-arm-linux-gnueabihf \
         curl \
         libsdl2-2.0-0 \
         wget \
@@ -14,10 +12,6 @@ RUN dpkg --add-architecture armhf \
         ca-certificates \
         tzdata \
         zip \
-    && apt-get install -y --no-install-recommends \
-        libc6:armhf \
-        libncurses6:armhf \
-        libstdc++6:armhf \
     && sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen \
     && locale-gen
 
@@ -26,14 +20,11 @@ ENV LANG=en_US.UTF-8
 ENV LANGUAGE=en_US:en
 ENV LC_ALL=en_US.UTF-8
 
-# Install box86, add the box64 repo, and cleanup
-RUN wget https://itai-nelken.github.io/weekly-box86-debs/debian/box86.list -O /etc/apt/sources.list.d/box86.list \
-    && wget -qO- https://itai-nelken.github.io/weekly-box86-debs/debian/KEY.gpg | gpg --dearmor -o /etc/apt/trusted.gpg.d/box86-debs-archive-keyring.gpg \
-    && wget https://ryanfortner.github.io/box64-debs/box64.list -O /etc/apt/sources.list.d/box64.list \
+# Add the box64 repo, install server dependencies, and cleanup
+RUN wget https://ryanfortner.github.io/box64-debs/box64.list -O /etc/apt/sources.list.d/box64.list \
     && wget -qO- https://ryanfortner.github.io/box64-debs/KEY.gpg | gpg --dearmor -o /etc/apt/trusted.gpg.d/box64-debs-archive-keyring.gpg \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
-        box86 \
         libatomic1 \
         libpulse-mainloop-glib0 \
     && apt-get purge -y wget gpg \

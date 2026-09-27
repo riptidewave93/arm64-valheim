@@ -47,7 +47,7 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
 
       # Scheduled runs skip the cache so the weekly build picks up new
-      # Debian and box86/box64 packages.
+      # Debian and box64 packages.
       - name: Build and push base image
         id: build-and-push
         uses: docker/build-push-action@v7
