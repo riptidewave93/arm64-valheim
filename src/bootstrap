@@ -6,11 +6,13 @@
 #   string: params to run the server
 #   int: -1 is something is wrong.
 
+# shellcheck source=common
 . /usr/local/lib/valheim/common
 
 # box64 settings, exported so box64 actually sees them. Note box64 logs to
-# stdout unless BOX64_TRACE_FILE is set.
-export BOX64_LOG=${BOX64_LOG:-1}
+# stdout unless BOX64_TRACE_FILE is set. Its log level 1 and up shows the
+# server's arguments, including the password, so default to errors only.
+export BOX64_LOG=${BOX64_LOG:-0}
 export BOX64_TRACE=${BOX64_TRACE:-0}
 export BOX64_EMULATED_LIBS=libogg.so.0${BOX64_EMULATED_LIBS:+:$BOX64_EMULATED_LIBS}
 export BOX64_LD_PRELOAD=libogg.so.0${BOX64_LD_PRELOAD:+:$BOX64_LD_PRELOAD}
@@ -32,7 +34,15 @@ getparams() {
     fi
     params+=(-saveinterval "${SAVEINTERVAL:-1800}")
 
-    ## -password: Password for the server.
+    ## -password: Password for the server, optionally read from a file
+    ## (e.g. a Docker secret), which takes precedence.
+    if [[ -n "${PASSWORD_FILE}" ]]; then
+        if [[ ! -r "${PASSWORD_FILE}" ]]; then
+            echo "Unable to read PASSWORD_FILE ${PASSWORD_FILE}! Exiting."
+            exit 1
+        fi
+        PASSWORD=$(< "${PASSWORD_FILE}")
+    fi
     if [[ -z "${PASSWORD}" ]]; then
         echo "The variable PASSWORD is not defined! Exiting, as valheim servers require passwords now!"
         exit 1
@@ -54,6 +64,7 @@ getparams() {
     ##  The first is the ‘short’ backup length, and the rest are the ‘long’ backup length.
     ##  By default that means one backup that is 2 hours old, and 3 backups that are 12 hours apart.
     ##  BACKUPS=true/false instead toggles our own world backups, see valheim-backup.
+    # shellcheck disable=SC2153 # BACKUPS is set by the user, not a typo
     if [[ "${BACKUPS}" =~ ^[0-9]+$ ]]; then
         params+=(-backups "${BACKUPS}")
     else
@@ -74,6 +85,47 @@ getparams() {
     if is_true "${CROSSPLAY}"; then
         params+=(-crossplay)
     fi
+
+    ## SERVER_ARGS: Additional arguments, e.g. world modifiers like -preset hard
+    if [[ -n "${SERVER_ARGS}" ]]; then
+        read -r -a extra_args <<< "${SERVER_ARGS}"
+        params+=("${extra_args[@]}")
+    fi
+
+    # Catch typos in schedules now, rather than tasks silently never running
+    local var
+    for var in BACKUPS_CRON UPDATE_CRON RESTART_CRON; do
+        if [[ -n "${!var}" ]] && ! cron_valid "${!var}"; then
+            echo "${var} is not a valid cron schedule: '${!var}'! Exiting."
+            exit 1
+        fi
+    done
+}
+
+# When PUID/PGID are set, creates the user, gives it the server files and
+# save dir, then re-runs this script as that user
+setup_user() {
+    if [[ ! "${PUID}" =~ ^[0-9]+$ || ! "${PGID}" =~ ^[0-9]+$ ]]; then
+        echo "PUID and PGID must be numeric IDs! Exiting."
+        exit 1
+    fi
+    if [[ "${EUID}" -ne 0 ]] || (( PUID == 0 && PGID == 0 )); then
+        return 0
+    fi
+
+    getent group "${PGID}" > /dev/null || groupadd -g "${PGID}" valheim
+    getent passwd "${PUID}" > /dev/null || useradd -u "${PUID}" -g "${PGID}" -d "${USER_HOME}" -M -s /usr/sbin/nologin valheim
+
+    local dirs=("${USER_HOME}" "${VOLUME_DIR}" "${SAVEDIR}")
+    [[ -n "${BACKUPS_DIRECTORY}" ]] && dirs+=("${BACKUPS_DIRECTORY}")
+    mkdir -p "${dirs[@]}"
+    if [[ -n "${LOGFILE}" ]]; then
+        mkdir -p "$(dirname "${LOGFILE}")" && touch "${LOGFILE}" && dirs+=("${LOGFILE}")
+    fi
+    echo "Running as ${PUID}:${PGID}, updating file ownership..."
+    find "${dirs[@]}" \( ! -user "${PUID}" -o ! -group "${PGID}" \) -exec chown -h "${PUID}:${PGID}" {} +
+
+    run_as_user "$@"
 }
 
 # Write a list of SteamIDs (space or comma separated) to a permission file
@@ -86,15 +138,40 @@ write_idlist() {
     fi
 }
 
+# Returns success if directory $1 is on a volume, meaning it or one of its
+# parents is a mount point
+on_volume() {
+    local dir
+    dir=$(realpath -e "$1" 2>/dev/null) || return 1
+    while [[ "${dir}" != / ]]; do
+        mountpoint -q "${dir}" && return 0
+        dir=$(dirname "${dir}")
+    done
+    return 1
+}
+
 # Download steam and whatnot
 bootstrap() {
+    # Ensure our world dir exists
+    if [ ! -d "${SAVEDIR}" ]; then
+        mkdir -p "${SAVEDIR}"
+    fi
+
+    # Refuse to run without a volume for the world, unless allowed
+    if ! on_volume "${SAVEDIR}"; then
+        if ! is_true "${ALLOW_NO_VOLUME}"; then
+            echo "ERROR: ${SAVEDIR} is not a volume mount, your world would be lost when the container is removed! Mount a volume at ${SAVEDIR}, or set ALLOW_NO_VOLUME=true to run anyway. Exiting."
+            exit 1
+        fi
+        echo "WARNING: ${SAVEDIR} is not a volume mount, your world will be lost when the container is removed!"
+    fi
+
     # Use Valve's native ARM64 steamcmd
     if [ ! -x "${STEAMCMD_DIR}/linuxarm64/steamcmd" ]; then
         echo "Installing steamcmd..."
         rm -rf "${STEAMCMD_DIR}"
-        mkdir "${STEAMCMD_DIR}" && cd "${STEAMCMD_DIR}"
-        curl -sqL "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linuxarm64.tar.gz" | tar zxf -
-        cd - > /dev/null
+        mkdir "${STEAMCMD_DIR}" \
+            && curl -sqL "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linuxarm64.tar.gz" | tar zxf - -C "${STEAMCMD_DIR}"
     fi
 
     # If we exist, make sure we are up to date. Retried, as the first run on
@@ -108,11 +185,6 @@ bootstrap() {
     if [ ! -f "${SERVER_DIR}/valheim_server.x86_64" ]; then
         echo "Valheim server is not installed, steamcmd failed! Exiting."
         exit 1
-    fi
-
-    # Ensure our world dir exists
-    if [ ! -d "${SAVEDIR}" ]; then
-        mkdir -p "${SAVEDIR}"
     fi
 
     # Setup server permission lists
@@ -130,8 +202,15 @@ bootstrap() {
 
 # Starts the server in the background
 start_server() {
+    # Don't show the password in the log
+    local shown=("${params[@]}") i
+    for i in "${!shown[@]}"; do
+        if [[ "${shown[i]}" = -password ]]; then
+            shown[i+1]='********'
+        fi
+    done
     echo "##############################"
-    echo "Final Valheim parameters to run: ${params[*]}"
+    echo "Final Valheim parameters to run: ${shown[*]}"
     echo "##############################"
     (cd "${SERVER_DIR}" && exec "${server_cmd[@]}" ./valheim_server.x86_64 "${params[@]}") &
     server_pid=$!
@@ -171,8 +250,9 @@ on_shutdown() {
     stop_server
 }
 
+# Ignored while the server is not running, e.g. while updating
 on_restart() {
-    if [[ "${stopping}" != true ]]; then
+    if [[ "${stopping}" != true ]] && kill -0 "${server_pid}" 2>/dev/null; then
         restarting=true
         stop_server
     fi
@@ -187,11 +267,15 @@ main() {
     # Start periodic world backups, unless disabled with BACKUPS=false
     if [[ "${BACKUPS}" =~ ^[0-9]+$ ]] || is_true "${BACKUPS:-true}"; then
         backups=true
-        echo "Starting world backups every ${BACKUPS_INTERVAL:-3600} seconds..."
+        if [[ -n "${BACKUPS_CRON}" ]]; then
+            echo "Starting world backups on schedule ${BACKUPS_CRON}..."
+        else
+            echo "Starting world backups every ${BACKUPS_INTERVAL:-3600} seconds..."
+        fi
         (
-            while true; do
+            valheim-backup
+            while wait_next_run "${BACKUPS_CRON}" "${BACKUPS_INTERVAL:-3600}"; do
                 valheim-backup
-                sleep "${BACKUPS_INTERVAL:-3600}"
             done
         ) &
     fi
@@ -211,14 +295,15 @@ main() {
         fi
     fi
 
-    # Start periodic update checks, the updater signals us with SIGUSR1 when
-    # the server should be restarted to apply an update
+    # Start periodic update checks and scheduled restarts, the updater
+    # signals us with SIGUSR1 when the server should be restarted
     echo $$ > "${SUPERVISOR_PIDFILE}"
     trap on_shutdown TERM INT
     trap on_restart USR1
     valheim-updater &
 
-    # Run the server, restarting it when requested by the updater
+    # Run the server, restarting (and updating) it when requested by the
+    # updater
     while true; do
         start_server
         wait_server
@@ -239,6 +324,7 @@ main() {
     done
 }
 
+setup_user "$@"
 getparams
 bootstrap
 main

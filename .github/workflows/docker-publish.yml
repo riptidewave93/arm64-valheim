@@ -11,130 +11,61 @@ on:
    - cron: '0 14 * * 2'
 
 env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  DOCKERHUB_IMAGE: riptidewave93/arm64-valheim
 
 jobs:
-  # Build the shared base image once, and hand it to the variant builds as an
-  # OCI layout artifact so every variant is built on this exact base.
-  base:
+  # Builds the base and every variant image with the Makefile, so CI builds
+  # match local builds. Image names and variants are set in the Makefile.
+  build:
     runs-on: ubuntu-26.04-arm
     permissions:
       contents: read
       packages: write
-    outputs:
-      digest: ${{ steps.build-and-push.outputs.digest }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Log into registry ${{ env.REGISTRY }}
+      - name: Log into registry ghcr.io
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v4
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v6
+      - name: Log into Docker Hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v4
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       # Scheduled runs skip the cache so the weekly build picks up new
       # Debian and box64 packages.
-      - name: Build and push base image
-        id: build-and-push
-        uses: docker/build-push-action@v7
-        with:
-          platforms: linux/arm64
-          context: .
-          file: ./Dockerfile-base
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:base
-          labels: ${{ steps.meta.outputs.labels }}
-          outputs: |
-            type=oci,dest=${{ runner.temp }}/base,tar=false
-            ${{ github.event_name != 'pull_request' && 'type=registry' || '' }}
-          no-cache: ${{ github.event_name == 'schedule' }}
-          cache-from: type=gha,scope=base
-          cache-to: type=gha,scope=base,mode=max
+      - name: Build images
+        run: make all ${{ github.event_name == 'schedule' && 'NO_CACHE=1' || '' }}
 
-      - name: Upload base image
-        uses: actions/upload-artifact@v7
-        with:
-          name: base-image
-          path: ${{ runner.temp }}/base
-          retention-days: 1
+      - name: Push images
+        if: github.event_name != 'pull_request'
+        run: make push
 
-  build:
-    needs: base
+  # Sync README.md to the Docker Hub repository description
+  dockerhub-description:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-26.04-arm
-    strategy:
-      fail-fast: false
-      matrix:
-        # cpu_affinity is only set for SoCs with mixed fast/slow cores, the
-        # others (pi4: 4x A72, pi5: 4x A76, tegra-t194: Carmel) are uniform
-        include:
-          - tag: arm64
-            box64: box64
-          - tag: pi4
-            box64: box64-rpi4arm64
-          - tag: pi5
-            box64: box64-rpi5arm64ps16k
-          - tag: rk3588
-            box64: box64-rk3588
-            # Pin to the Cortex-A76 cores
-            cpu_affinity: 4-7
-          - tag: tegra-t194
-            box64: box64-tegra-t194
     permissions:
       contents: read
-      packages: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
 
-      - name: Download base image
-        uses: actions/download-artifact@v8
+      - name: Update Docker Hub description
+        uses: peter-evans/dockerhub-description@v5
         with:
-          name: base-image
-          path: ${{ runner.temp }}/base
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Log into registry ${{ env.REGISTRY }}
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v4
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v6
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v7
-        with:
-          platforms: linux/arm64
-          context: .
-          file: ./Dockerfile
-          build-args: |
-            BASE_IMAGE=base
-            BOX64_PACKAGE=${{ matrix.box64 }}
-            CPU_AFFINITY=${{ matrix.cpu_affinity }}
-          build-contexts: |
-            base=oci-layout://${{ runner.temp }}/base@${{ needs.base.outputs.digest }}
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.tag }}
-          labels: ${{ steps.meta.outputs.labels }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ env.DOCKERHUB_IMAGE }}
+          short-description: ${{ github.event.repository.description }}

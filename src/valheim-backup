@@ -4,10 +4,13 @@
 # Ran periodically by bootstrap, and can be ran by hand to force a backup:
 #   docker exec valheim-server valheim-backup
 #
-# Modeled after the backup system in lloesche/valheim-server, see README.md
-# for the supported variables.
+# Modeled after the backup system in
+# community-valheim-tools/valheim-server-docker, see README.md for the
+# supported variables.
 
+# shellcheck source=common
 . /usr/local/lib/valheim/common
+run_as_user "$@"
 
 BACKUPS_DIRECTORY=${BACKUPS_DIRECTORY:-$SAVEDIR/backups}
 BACKUPS_DIRECTORY=${BACKUPS_DIRECTORY%/}
@@ -54,7 +57,9 @@ archive_stable() {
     return "${rc}"
 }
 
-# Uncompressed copy of the worlds directory, without Valheim's own backups
+# Uncompressed copy of the worlds directory, without Valheim's own backups.
+# Called through archive_stable.
+# shellcheck disable=SC2329
 copy_worlds() {
     local worlds_dir="$1" backup_dir="$2"
     mkdir -p "${backup_dir}" \
@@ -64,7 +69,7 @@ copy_worlds() {
 }
 
 backup() {
-    local worlds_dir backup_file
+    local worlds_dir backup_file rc
     if [[ -d "${SAVEDIR}/worlds_local" ]]; then
         worlds_dir="${SAVEDIR}/worlds_local"
     elif [[ -d "${SAVEDIR}/worlds" ]]; then
@@ -82,6 +87,7 @@ backup() {
         run_hook "${PRE_BACKUP_HOOK}" "${backup_file}"
         log "Backing up ${worlds_dir} to ${backup_file}"
         # zip needs to run from the worlds dir to keep paths relative
+        # shellcheck disable=SC2016
         archive_stable "${worlds_dir}/${WORLD}" "${backup_file}" \
             bash -c 'cd "$1" && zip -qr "$2" . -x "*_backup_auto-*"' _ "${worlds_dir}" "${backup_file}"
     else
@@ -90,9 +96,10 @@ backup() {
         archive_stable "${worlds_dir}/${WORLD}" "${backup_file}" \
             copy_worlds "${worlds_dir}" "${backup_file}"
     fi
+    rc=$?
 
     # A partial backup looks like a whole one, so drop it
-    if [[ $? -ne 0 ]]; then
+    if [[ "${rc}" -ne 0 ]]; then
         log "ERROR: Failed to create ${backup_file}"
         rm -rf -- "${backup_file}"
         return 1

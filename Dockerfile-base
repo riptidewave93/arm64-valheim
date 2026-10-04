@@ -1,5 +1,5 @@
 # Shared base image for all build variants, see Dockerfile
-FROM debian:trixie-slim
+FROM docker.io/library/debian:trixie-slim
 
 # Install tools required for the project
 RUN apt-get update && apt-get full-upgrade -y \
@@ -44,4 +44,4 @@ RUN wget https://ryanfortner.github.io/box64-debs/box64.list -O /etc/apt/sources
     && apt-get autoremove -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
-    && mkdir /opt/valheim
+    && mkdir /opt/valheim /config

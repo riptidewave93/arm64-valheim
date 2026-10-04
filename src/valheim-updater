@@ -2,16 +2,20 @@
 
 # Checks Steam for Valheim server updates. When one is found and no players
 # are connected, asks bootstrap to stop the server, update and start it again.
+# Also restarts the server on the RESTART_CRON schedule, the same way.
 #
 # Usage:
 #   valheim-updater          Run periodic update checks (started by bootstrap)
 #   valheim-updater check    Show installed/latest build, exits 0 if an update is available
 #   valheim-updater update   Update now if one is available, even if players are connected
 
+# shellcheck source=common
 . /usr/local/lib/valheim/common
+run_as_user "$@"
 
 UPDATE_INTERVAL=${UPDATE_INTERVAL:-900}
 UPDATE_IF_IDLE=${UPDATE_IF_IDLE:-true}
+RESTART_IF_IDLE=${RESTART_IF_IDLE:-true}
 UPDATE_IDLE_CHECKS=${UPDATE_IDLE_CHECKS:-5}
 UPDATE_IDLE_CHECK_INTERVAL=${UPDATE_IDLE_CHECK_INTERVAL:-60}
 IDLE_DATAGRAM_WINDOW=${IDLE_DATAGRAM_WINDOW:-3}
@@ -66,7 +70,8 @@ udp_datagrams() {
 }
 
 # Players can't reliably be counted (Steam queries report 0 with crossplay),
-# so like lloesche/valheim-server, treat low UDP traffic as idle.
+# so like community-valheim-tools/valheim-server-docker, treat low UDP
+# traffic as idle.
 server_is_idle() {
     local before after
     before=$(udp_datagrams)
@@ -78,7 +83,7 @@ server_is_idle() {
 # Blocks until the server has been idle for UPDATE_IDLE_CHECKS checks in a row
 wait_for_idle() {
     local idle=0
-    log "Waiting for the server to be idle before updating"
+    log "Waiting for the server to be idle"
     while (( idle < UPDATE_IDLE_CHECKS )); do
         if server_is_idle; then
             idle=$(( idle + 1 ))
@@ -103,18 +108,39 @@ request_restart() {
         log "Unable to signal bootstrap to restart the server"
         return 1
     fi
-    log "Requested server restart to apply update"
+    log "Requested server restart"
+}
+
+# Restarts the server on the RESTART_CRON schedule
+restart_loop() {
+    log "Restarting the server on schedule ${RESTART_CRON}"
+    while sleep_until_cron "${RESTART_CRON}"; do
+        log "Scheduled restart"
+        if is_true "${RESTART_IF_IDLE}"; then
+            wait_for_idle
+        fi
+        request_restart
+    done
 }
 
 main() {
-    if [[ "${UPDATE_INTERVAL}" -eq 0 ]]; then
+    if [[ -n "${RESTART_CRON}" ]]; then
+        restart_loop &
+    fi
+
+    if [[ -z "${UPDATE_CRON}" && "${UPDATE_INTERVAL}" -eq 0 ]]; then
         log "Update checks are disabled"
+        wait
         return
     fi
-    log "Checking for updates every ${UPDATE_INTERVAL} seconds"
+    if [[ -n "${UPDATE_CRON}" ]]; then
+        log "Checking for updates on schedule ${UPDATE_CRON}"
+    else
+        log "Checking for updates every ${UPDATE_INTERVAL} seconds"
+    fi
     while true; do
         # bootstrap updates on start, so the first check can wait
-        sleep "${UPDATE_INTERVAL}"
+        wait_next_run "${UPDATE_CRON}" "${UPDATE_INTERVAL}"
         run_hook "${PRE_UPDATE_CHECK_HOOK}"
         if update_available; then
             # Don't restart the server over and over if an update to this

@@ -1,22 +1,46 @@
+# shellcheck shell=bash
 # Shared settings and helpers, sourced by bootstrap, valheim-backup and
-# valheim-updater.
+# valheim-updater, which use the variables set here.
+# shellcheck disable=SC2034
 
 STEAMAPPID=892970
 SERVER_APPID=896660
 VOLUME_DIR="/opt/valheim"
+CONFIG_DIR="/config"
 STEAMCMD_DIR="${VOLUME_DIR}/steamcmd"
 SERVER_DIR="${VOLUME_DIR}/valheim_server"
 STEAMCMD_LOCKFILE=/tmp/steamcmd.lock
 SUPERVISOR_PIDFILE=/tmp/valheim-supervisor.pid
 
-# Accept the env var names used by lloesche/valheim-server as aliases, so
-# existing deployments can switch images without renaming everything.
+# Accept the env var names used by
+# community-valheim-tools/valheim-server-docker as aliases, so existing
+# deployments can switch images without renaming everything.
 NAME=${NAME:-$SERVER_NAME}
-WORLD=${WORLD:-${WORLD_NAME:-default}}
+WORLD=${WORLD:-$WORLD_NAME}
 PASSWORD=${PASSWORD:-$SERVER_PASS}
+PASSWORD_FILE=${PASSWORD_FILE:-$SERVER_PASS_FILE}
 PORT=${PORT:-${SERVER_PORT:-2456}}
 PUBLIC=${PUBLIC:-$SERVER_PUBLIC}
-SAVEDIR=${SAVEDIR:-$VOLUME_DIR/world}
+
+# Worlds are kept in /config, like
+# community-valheim-tools/valheim-server-docker
+SAVEDIR=${SAVEDIR:-$CONFIG_DIR}
+
+# Returns success if world $1 exists in the save dir, as a Valheim 1.0 world
+# directory or an older .fwl file
+world_exists() {
+    [[ -e "${SAVEDIR}/worlds_local/$1" || -e "${SAVEDIR}/worlds_local/$1.fwl" || -e "${SAVEDIR}/worlds/$1.fwl" ]]
+}
+
+# community-valheim-tools/valheim-server-docker names the world Dedicated
+# by default, so keep using it if that is the only world
+if [[ -z "${WORLD}" ]]; then
+    if world_exists Dedicated && ! world_exists default; then
+        WORLD=Dedicated
+    else
+        WORLD=default
+    fi
+fi
 
 # Returns success for 1/true/yes, in any case
 is_true() {
@@ -50,4 +74,94 @@ steamcmd() {
 # Installs or updates, and validates, the Valheim server
 update_server() {
     steamcmd +force_install_dir "${SERVER_DIR}" +login anonymous +app_update "${SERVER_APPID}" validate
+}
+
+# User and group the server runs as, see run_as_user. Defaults to root.
+PUID=${PUID:-0}
+PGID=${PGID:-0}
+USER_HOME=/home/valheim
+
+# Re-runs the calling script as PUID/PGID when they are set and it runs as
+# root, e.g. when started by docker exec, so files keep the right owner.
+run_as_user() {
+    if [[ "${EUID}" -eq 0 ]] && (( PUID != 0 || PGID != 0 )); then
+        export HOME="${USER_HOME}"
+        cd / && exec setpriv --reuid="${PUID}" --regid="${PGID}" --clear-groups -- /bin/bash "$0" "$@"
+    fi
+}
+
+# Returns success if cron field $2 matches value $1, for a field ranging from
+# $3 to $4. Supports *, numbers, ranges (a-b), steps (*/n, a-b/n, a/n) and
+# lists of those (a,b).
+cron_field_match() {
+    local value="$1" field="$2" min="$3" max="$4" part range step lo hi
+    local -a parts
+    IFS=, read -r -a parts <<< "${field}"
+    for part in "${parts[@]}"; do
+        range=${part%%/*}
+        step=1
+        [[ "${part}" = */* ]] && step=$((10#${part#*/}))
+        if [[ "${range}" = "*" ]]; then
+            lo=${min} hi=${max}
+        elif [[ "${range}" = *-* ]]; then
+            lo=$((10#${range%-*})) hi=$((10#${range#*-}))
+        else
+            lo=$((10#${range})) hi=${lo}
+            # a/n means from a to the end of the range
+            [[ "${part}" = */* ]] && hi=${max}
+        fi
+        if (( value >= lo && value <= hi && (value - lo) % step == 0 )); then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Returns success if $1 is a valid 5 field cron schedule
+cron_valid() {
+    local item='(\*|[0-9]+(-[0-9]+)?)(/0*[1-9][0-9]*)?'
+    local field="^${item}(,${item})*\$" fields f
+    read -r -a fields <<< "$1"
+    [[ "${#fields[@]}" -eq 5 ]] || return 1
+    for f in "${fields[@]}"; do
+        [[ "${f}" =~ ${field} ]] || return 1
+    done
+}
+
+# Returns success if the current minute matches cron schedule $1. Like cron,
+# when both day of month and day of week are restricted, either may match.
+cron_match() {
+    local minute hour dom month dow m h d mo w dom_ok=1 dow_ok=1
+    read -r minute hour dom month dow <<< "$1"
+    read -r m h d mo w <<< "$(date '+%-M %-H %-d %-m %w')"
+    cron_field_match "${m}" "${minute}" 0 59 \
+        && cron_field_match "${h}" "${hour}" 0 23 \
+        && cron_field_match "${mo}" "${month}" 1 12 \
+        || return 1
+    cron_field_match "${d}" "${dom}" 1 31 && dom_ok=0
+    # Sunday is both 0 and 7
+    { cron_field_match "${w}" "${dow}" 0 7 || { (( w == 0 )) && cron_field_match 7 "${dow}" 0 7; }; } && dow_ok=0
+    if [[ "${dom}" = \** || "${dow}" = \** ]]; then
+        (( dom_ok == 0 && dow_ok == 0 ))
+    else
+        (( dom_ok == 0 || dow_ok == 0 ))
+    fi
+}
+
+# Sleeps until the next minute matching cron schedule $1
+sleep_until_cron() {
+    while true; do
+        sleep $((60 - 10#$(date +%S)))
+        cron_match "$1" && return 0
+    done
+}
+
+# Waits for the next run of a periodic task: by cron schedule $1 if set,
+# otherwise for $2 seconds
+wait_next_run() {
+    if [[ -n "$1" ]]; then
+        sleep_until_cron "$1"
+    else
+        sleep "$2"
+    fi
 }

@@ -11,17 +11,19 @@ RUN apt-get update \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# Copy scripts
+WORKDIR /root
+COPY src/bootstrap src/common /usr/local/lib/valheim/
+COPY src/valheim-backup src/valheim-updater /usr/local/bin/
+
 # CPU_AFFINITY sets the default cores the server is pinned to, for SoCs with
 # fast and slow cores (e.g. 4-7 for the RK3588 A76 cores). Unset by default.
 ARG CPU_AFFINITY=
 ENV CPU_AFFINITY=${CPU_AFFINITY}
 
-# Specific for run Valheim server
+# Required ports for the Valheim server
 EXPOSE 2456-2458/tcp 2456-2458/udp
-WORKDIR /root
-COPY src/bootstrap .
-COPY src/common /usr/local/lib/valheim/
-COPY src/valheim-backup src/valheim-updater /usr/local/bin/
+
 # tini forwards signals to bootstrap, which forwards them to the server
 ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["/bin/bash", "/root/bootstrap"]
+CMD ["/bin/bash", "/usr/local/lib/valheim/bootstrap"]
