@@ -6,7 +6,7 @@
 DOCKER ?= docker
 PLATFORM ?= linux/arm64
 # Every image name gets the variant tags, the base image only gets the first
-IMAGES ?= ghcr.io/riptidewave93/arm64-valheim docker.io/library/riptidewave93/arm64-valheim
+IMAGES ?= ghcr.io/riptidewave93/arm64-valheim docker.io/riptidewave93/arm64-valheim
 IMAGE := $(firstword $(IMAGES))
 # Set to build without cache, e.g. to pick up new Debian and box64 packages
 NO_CACHE ?=
