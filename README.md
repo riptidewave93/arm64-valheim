@@ -126,7 +126,7 @@ Cron schedules use the standard 5 fields (minute, hour, day of month, month, day
 | Path           | Contents                                                                                                                       |
 |----------------|--------------------------------------------------------------------------------------------------------------------------------|
 | `/config`      | Your world (`worlds_local/`), the `adminlist.txt`, `bannedlist.txt` and `permittedlist.txt` files, and `backups/`. **Required**, the server refuses to start without a volume here (see `ALLOW_NO_VOLUME`). |
-| `/opt/valheim` | The downloaded Valheim server and steamcmd. Optional, but saves downloading the server (~1 GB) on each fresh start.            |
+| `/opt/valheim` | The downloaded Valheim server and steamcmd, with its cache. Optional, but saves downloading the server (~1 GB) on each fresh start. |
 
 To use an existing world, copy its directory (e.g. `%USERPROFILE%\AppData\LocalLow\IronGate\Valheim\worlds_local` on Windows) to `worlds_local/` in your `/config` volume, and set `WORLD` to the name of the world.
 

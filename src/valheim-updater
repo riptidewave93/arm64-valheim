@@ -15,6 +15,7 @@ run_as_user "$@"
 
 UPDATE_INTERVAL=${UPDATE_INTERVAL:-900}
 UPDATE_IF_IDLE=${UPDATE_IF_IDLE:-true}
+UPDATE_ATTEMPTS=3
 RESTART_IF_IDLE=${RESTART_IF_IDLE:-true}
 UPDATE_IDLE_CHECKS=${UPDATE_IDLE_CHECKS:-5}
 UPDATE_IDLE_CHECK_INTERVAL=${UPDATE_IDLE_CHECK_INTERVAL:-60}
@@ -34,7 +35,7 @@ latest_buildid() {
     # app_info_print serves stale cached data unless the app cache is cleared
     (
         flock 8
-        rm -f "${STEAMCMD_DIR}/appcache/appinfo.vdf" ~/Steam/appcache/appinfo.vdf
+        rm -f "${STEAMCMD_DIR}/appcache/appinfo.vdf" "${STEAMCMD_HOME}/Steam/appcache/appinfo.vdf"
     ) 8> "${STEAMCMD_LOCKFILE}"
     steamcmd +login anonymous +app_info_update 1 +app_info_print "${SERVER_APPID}" 2>/dev/null \
         | awk -F '"' '
@@ -143,15 +144,22 @@ main() {
         wait_next_run "${UPDATE_CRON}" "${UPDATE_INTERVAL}"
         run_hook "${PRE_UPDATE_CHECK_HOOK}"
         if update_available; then
-            # Don't restart the server over and over if an update to this
-            # build was already tried but did not apply
-            if [[ "${latest}" = "${restarted_for}" ]]; then
-                log "Update to build ${latest} was already applied but the installed build did not change, not restarting again"
+            if [[ "${latest}" != "${restarted_for}" ]]; then
+                restarted_for=${latest}
+                attempts=0
+            fi
+            # Don't restart the server over and over if updating to this
+            # build keeps failing
+            if (( attempts >= UPDATE_ATTEMPTS )); then
+                log "Update to build ${latest} failed ${attempts} times, not restarting for it again, see the steamcmd output above"
             else
+                if (( attempts > 0 )); then
+                    log "Update to build ${latest} failed, retrying (attempt $(( attempts + 1 ))/${UPDATE_ATTEMPTS})"
+                fi
                 if is_true "${UPDATE_IF_IDLE}"; then
                     wait_for_idle
                 fi
-                request_restart && restarted_for=${latest}
+                request_restart && attempts=$(( attempts + 1 ))
             fi
         fi
         run_hook "${POST_UPDATE_CHECK_HOOK}"

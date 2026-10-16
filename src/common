@@ -8,6 +8,7 @@ SERVER_APPID=896660
 VOLUME_DIR="/opt/valheim"
 CONFIG_DIR="/config"
 STEAMCMD_DIR="${VOLUME_DIR}/steamcmd"
+STEAMCMD_HOME="${STEAMCMD_DIR}/home"
 SERVER_DIR="${VOLUME_DIR}/valheim_server"
 STEAMCMD_LOCKFILE=/tmp/steamcmd.lock
 SUPERVISOR_PIDFILE=/tmp/valheim-supervisor.pid
@@ -65,15 +66,34 @@ run_hook() {
 steamcmd() {
     (
         flock 8
+        mkdir -p "${STEAMCMD_HOME}"
         # Force the linux platform, as the server is only published for x86_64
         cd "${STEAMCMD_DIR}" \
-            && ./steamcmd.sh +@sSteamCmdForcePlatformType linux "$@" +quit
+            && HOME="${STEAMCMD_HOME}" ./steamcmd.sh +@sSteamCmdForcePlatformType linux "$@" +quit
     ) 8> "${STEAMCMD_LOCKFILE}"
 }
 
 # Installs or updates, and validates, the Valheim server
 update_server() {
-    steamcmd +force_install_dir "${SERVER_DIR}" +login anonymous +app_update "${SERVER_APPID}" validate
+    local manifest="${SERVER_DIR}/steamapps/appmanifest_${SERVER_APPID}.acf"
+    steamcmd +force_install_dir "${SERVER_DIR}" +login anonymous +app_update "${SERVER_APPID}" validate \
+        && return 0
+    [[ -f "${manifest}" ]] || return 1
+
+    # Updates fail with "state is 0x6" when Steam denies the manifest of the
+    # installed build and it isn't cached, e.g. when the cache was lost. Without
+    # the app manifest, steamcmd validates the installed files against the new
+    # build instead, only downloading what changed.
+    echo "Update failed, retrying with a full validation..."
+    mv "${manifest}" "${manifest}.bak"
+    if steamcmd +force_install_dir "${SERVER_DIR}" +login anonymous +app_update "${SERVER_APPID}" validate; then
+        rm -f "${manifest}.bak"
+        return 0
+    fi
+    # Keep the installed build id, so the updater can still check for updates
+    [[ -f "${manifest}" ]] || mv "${manifest}.bak" "${manifest}"
+    rm -f "${manifest}.bak"
+    return 1
 }
 
 # User and group the server runs as, see run_as_user. Defaults to root.

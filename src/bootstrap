@@ -319,7 +319,9 @@ main() {
         if [[ "${backups}" = true ]]; then
             valheim-backup
         fi
-        update_server
+        if ! update_server; then
+            echo "Valheim server update failed, starting the installed build"
+        fi
         run_hook "${POST_RESTART_HOOK}"
     done
 }
